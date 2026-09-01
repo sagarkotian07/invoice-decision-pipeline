@@ -1,0 +1,182 @@
+{
+  "source_file": "samples/01_happy_path.pdf",
+  "decision": {
+    "outcome": "AUTO_APPROVE",
+    "confidence": 0.98,
+    "headline": "Approved automatically \u2014 safe to pay.",
+    "primary_reasons": [
+      "[REQUIRED_FIELDS_PRESENT] All critical fields (number, date, total, vendor) were read.",
+      "[MATH_RECONCILES] Arithmetic checks out: subtotal + tax = $12,500.00.",
+      "[VENDOR_APPROVED] Vendor resolved to Acme Industrial Supplies (V001) [exact/alias].",
+      "[PO_FOUND_EXPLICIT] Matched explicit PO reference PO-1001 ($12,500.00, Q3 warehouse racking + fasteners).",
+      "[EXTRACTION_TRUSTED] Extraction confidence 85% clears the automation threshold.",
+      "[NO_DUPLICATE] No matching invoice found in the ledger \u2014 not a duplicate.",
+      "[AMOUNT_WITHIN_TOLERANCE] Invoice $12,500.00 is within tolerance of the PO total $12,500.00 (\u0394 $0.00, 0.0%)."
+    ],
+    "recommended_action": "Release for payment per vendor terms."
+  },
+  "extracted": {
+    "invoice_number": "ACME-88213",
+    "invoice_date": "2026-06-12",
+    "vendor_raw": "Acme Industrial Supplies",
+    "vendor_resolved": "Acme Industrial Supplies",
+    "vendor_id": "V001",
+    "po_reference": "PO-1001",
+    "currency": "USD",
+    "subtotal": "11500.00",
+    "tax": "1000.00",
+    "total": "12500.00",
+    "line_items": [
+      {
+        "description": "Warehouse racking system",
+        "quantity": "1",
+        "unit_price": "8000.00",
+        "amount": "8000.00"
+      },
+      {
+        "description": "Steel fasteners (bulk carton)",
+        "quantity": "1",
+        "unit_price": "3500.00",
+        "amount": "3500.00"
+      }
+    ],
+    "extraction_confidence": 0.85
+  },
+  "matched_po": "PO-1001",
+  "ingest": {
+    "source_kind": "text-pdf",
+    "ocr_needed": false,
+    "ingest_confidence": 0.98
+  },
+  "trace": [
+    {
+      "stage": "ingest",
+      "summary": "Extracted 657 chars from a born-digital PDF text layer.",
+      "detail": {
+        "source_kind": "text-pdf",
+        "ocr_needed": false,
+        "ingest_confidence": 0.98,
+        "page_count": 1
+      },
+      "findings": []
+    },
+    {
+      "stage": "extract",
+      "summary": "Read 7 fields; overall confidence 85%.",
+      "detail": {
+        "invoice_number": "ACME-88213",
+        "invoice_date": "2026-06-12",
+        "vendor_raw": "Acme Industrial Supplies",
+        "po_reference": "PO-1001",
+        "subtotal": "$11,500.00",
+        "tax": "$1,000.00",
+        "total": "$12,500.00",
+        "line_item_count": 2,
+        "field_confidence": {
+          "invoice_number": 0.95,
+          "po_reference": 0.95,
+          "invoice_date": 0.95,
+          "vendor": 0.62,
+          "total": 0.95,
+          "subtotal": 0.92,
+          "tax": 0.9
+        }
+      },
+      "findings": []
+    },
+    {
+      "stage": "validate",
+      "summary": "All validation checks passed (2 run).",
+      "detail": {},
+      "findings": [
+        {
+          "code": "REQUIRED_FIELDS_PRESENT",
+          "severity": "OK",
+          "message": "All critical fields (number, date, total, vendor) were read.",
+          "evidence": {}
+        },
+        {
+          "code": "MATH_RECONCILES",
+          "severity": "OK",
+          "message": "Arithmetic checks out: subtotal + tax = $12,500.00.",
+          "evidence": {}
+        }
+      ]
+    },
+    {
+      "stage": "match",
+      "summary": "Vendor: Acme Industrial Supplies; PO: PO-1001 (explicit-reference).",
+      "detail": {
+        "vendor_id": "V001",
+        "po": "PO-1001",
+        "po_remaining_balance": "$12,500.00"
+      },
+      "findings": [
+        {
+          "code": "VENDOR_APPROVED",
+          "severity": "OK",
+          "message": "Vendor resolved to Acme Industrial Supplies (V001) [exact/alias].",
+          "evidence": {
+            "vendor_id": "V001",
+            "match_ratio": 1.0
+          }
+        },
+        {
+          "code": "PO_FOUND_EXPLICIT",
+          "severity": "OK",
+          "message": "Matched explicit PO reference PO-1001 ($12,500.00, Q3 warehouse racking + fasteners).",
+          "evidence": {
+            "po_number": "PO-1001",
+            "basis": "explicit-reference"
+          }
+        }
+      ]
+    },
+    {
+      "stage": "rules",
+      "summary": "All business-rule checks passed (3 run).",
+      "detail": {},
+      "findings": [
+        {
+          "code": "EXTRACTION_TRUSTED",
+          "severity": "OK",
+          "message": "Extraction confidence 85% clears the automation threshold.",
+          "evidence": {}
+        },
+        {
+          "code": "NO_DUPLICATE",
+          "severity": "OK",
+          "message": "No matching invoice found in the ledger \u2014 not a duplicate.",
+          "evidence": {}
+        },
+        {
+          "code": "AMOUNT_WITHIN_TOLERANCE",
+          "severity": "OK",
+          "message": "Invoice $12,500.00 is within tolerance of the PO total $12,500.00 (\u0394 $0.00, 0.0%).",
+          "evidence": {
+            "invoice_total": "12500.00",
+            "po_total": "12500.00",
+            "delta": "0.00"
+          }
+        }
+      ]
+    },
+    {
+      "stage": "decide",
+      "summary": "AUTO_APPROVE (confidence 98%) \u2014 Approved automatically \u2014 safe to pay.",
+      "detail": {
+        "primary_reasons": [
+          "[REQUIRED_FIELDS_PRESENT] All critical fields (number, date, total, vendor) were read.",
+          "[MATH_RECONCILES] Arithmetic checks out: subtotal + tax = $12,500.00.",
+          "[VENDOR_APPROVED] Vendor resolved to Acme Industrial Supplies (V001) [exact/alias].",
+          "[PO_FOUND_EXPLICIT] Matched explicit PO reference PO-1001 ($12,500.00, Q3 warehouse racking + fasteners).",
+          "[EXTRACTION_TRUSTED] Extraction confidence 85% clears the automation threshold.",
+          "[NO_DUPLICATE] No matching invoice found in the ledger \u2014 not a duplicate.",
+          "[AMOUNT_WITHIN_TOLERANCE] Invoice $12,500.00 is within tolerance of the PO total $12,500.00 (\u0394 $0.00, 0.0%)."
+        ],
+        "recommended_action": "Release for payment per vendor terms."
+      },
+      "findings": []
+    }
+  ]
+}

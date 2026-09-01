@@ -1,0 +1,32 @@
+ {
+  "_comment": "The AP system's memory of what it has already processed. Powers two things at once: (1) duplicate detection, and (2) stateful cumulative billing against a PO. 'amount_applied' is what actually got booked against the PO.",
+  "entries": [
+    {
+      "invoice_number": "GBX-5501",
+      "vendor_id": "V003",
+      "po_number": "PO-1003",
+      "total": "22000.00",
+      "invoice_date": "2026-05-20",
+      "amount_applied": "22000.00",
+      "decision": "AUTO_APPROVE"
+    },
+    {
+      "invoice_number": "GBX-5540",
+      "vendor_id": "V003",
+      "po_number": "PO-1003",
+      "total": "24000.00",
+      "invoice_date": "2026-06-10",
+      "amount_applied": "24000.00",
+      "decision": "AUTO_APPROVE"
+    },
+    {
+      "invoice_number": "INIT-4401",
+      "vendor_id": "V004",
+      "po_number": "PO-1004",
+      "total": "6750.00",
+      "invoice_date": "2026-06-15",
+      "amount_applied": "6750.00",
+      "decision": "AUTO_APPROVE"
+    }
+  ]
+}

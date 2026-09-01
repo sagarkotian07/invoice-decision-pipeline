@@ -1,0 +1,41 @@
+# HSN/SAC -> GST rate master. Default authority for the Tier-2 GST-rate check.
+# AS OF: FY 2025-26 (India). INDICATIVE — confirm against the current CBIC
+#        notification, or override by attaching your own rate master at runtime.
+# gst_percent = total GST (CGST+SGST intra-state, or IGST inter-state).
+# Lines beginning with '#' are comments and must be skipped by the reader.
+# NOTE: vendors in this engagement often bill a SERVICE under a GOODS HSN
+#       (e.g. 3808/8516 for pest control / AC servicing). When the GST check fails
+#       only because the HSN looks misclassified, flag it as advisory, not wrong.
+hsn_sac,gst_percent,category,note
+# --- codes seen in this batch ---
+3808,18,Insecticides / disinfectants,Pest-control chemicals
+8516,18,Electric heating apparatus / water heaters,AC-servicing billed under this
+85161000,18,Electric heating apparatus (8-digit),same heading as 8516
+9405,18,Lamps & lighting fittings (incl. LED luminaires),v1 wrongly had 12
+996609,18,SAC: rental services of transport vehicles,buggy rental w/wo operator
+# --- plumbing / hardware goods (Sri Lakshmi) ---
+3917,18,Plastic tubes / pipes / fittings (PVC/CPVC/UPVC),
+3925,18,Builders' ware of plastics,
+8481,18,Taps / cocks / valves for pipes,ball/butterfly valves
+7307,18,Tube/pipe fittings of iron or steel,
+3922,18,Plastic sanitaryware,
+# --- facility / maintenance services (SAC 99) ---
+9954,18,Construction / works-contract services (SAC),
+995469,18,SAC: other installation services,
+9985,18,Support services (SAC),security / facility / logistics
+998533,18,SAC: cleaning services,debris / garbage removal
+9987,18,Maintenance / repair / installation services (SAC),AMC / STP-WTP / pool upkeep
+99871,18,SAC: maintenance & repair of fabricated metal/machinery,
+998311,18,SAC: management / manpower-supply services,manpower staff salary billing
+9983,18,Other professional / technical / business services (SAC),
+# --- furniture / general goods (kept from v1, verified) ---
+9401,18,Seats and parts (chairs / sofas),
+9403,18,Other furniture and parts,
+9404,18,Mattresses / bedding / cushions,
+4418,18,Builders' joinery & carpentry of wood,
+8302,18,Base-metal mountings & fittings,furniture hardware
+4819,18,Cartons / boxes / packaging of paper,
+# --- common reduced-rate examples (verify per item) ---
+9405XX,18,Lighting fittings (generic fallback),
+6307,12,Other made-up textile articles,verify
+5208,5,Woven cotton fabrics,verify

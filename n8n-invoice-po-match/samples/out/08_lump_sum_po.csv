@@ -1,0 +1,5 @@
+invoice_number,invoice_date,vendor_name,vendor_gstin,invoice_total,matched_po_numbers,po_total_sum,result,vendor_match,total_match,dates_fy,po_num_consistent,date_order,match_basis,confidence,flags,reason
+INV-1008,2025-06-10,,29AABCS1429B1ZX,50000,PO2300,50000,Match,agrees,agrees,agrees,agrees,agrees,PR/PO number,high,PO is lump-sum — per-line checks N/A,
+
+invoice_number,line_no,description,hsn_sac,quantity,unit,rate,gst_rate,amount,paired_po_line,po_qty,po_unit_price,line_match,rate_match,qty_flag,hsn_valid,gst_correct
+INV-1008,1,STP maintenance June,9987,1,,50000,0.18,50000,,,,N/A — PO lump-sum,unverified,N/A — PO lump-sum,agrees,agrees

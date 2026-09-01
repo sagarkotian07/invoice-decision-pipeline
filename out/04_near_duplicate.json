@@ -1,0 +1,174 @@
+{
+  "source_file": "samples/04_near_duplicate.pdf",
+  "decision": {
+    "outcome": "NEEDS_REVIEW",
+    "confidence": 0.6,
+    "headline": "Cannot decide automatically \u2014 routed to a person with specific reasons.",
+    "primary_reasons": [
+      "[DUPLICATE_NEAR] Possible duplicate: same vendor, same amount ($6,750.00) and same date (2026-06-15) as already-processed invoice #INIT-4401, but a different invoice number (#INIT-4419). Classic accidental double-billing \u2014 needs a human to confirm.",
+      "[SECOND_INVOICE_ON_SINGLE_PO] PO PO-1004 is not marked for partial billing but $6,750.00 has already been billed against it. A second invoice here needs a human to confirm it isn't a duplicate or to raise a change order."
+    ],
+    "recommended_action": "Compare against the flagged prior invoice; pay only if it's a genuinely separate charge."
+  },
+  "extracted": {
+    "invoice_number": "INIT-4419",
+    "invoice_date": "2026-06-15",
+    "vendor_raw": "Initech, Inc.",
+    "vendor_resolved": "Initech Software",
+    "vendor_id": "V004",
+    "po_reference": "PO-1004",
+    "currency": "USD",
+    "subtotal": null,
+    "tax": null,
+    "total": "6750.00",
+    "line_items": [
+      {
+        "description": "Annual ERP license renewal",
+        "quantity": "1",
+        "unit_price": "6750.00",
+        "amount": "6750.00"
+      }
+    ],
+    "extraction_confidence": 0.85
+  },
+  "matched_po": "PO-1004",
+  "ingest": {
+    "source_kind": "text-pdf",
+    "ocr_needed": false,
+    "ingest_confidence": 0.98
+  },
+  "trace": [
+    {
+      "stage": "ingest",
+      "summary": "Extracted 298 chars from a born-digital PDF text layer.",
+      "detail": {
+        "source_kind": "text-pdf",
+        "ocr_needed": false,
+        "ingest_confidence": 0.98,
+        "page_count": 1
+      },
+      "findings": []
+    },
+    {
+      "stage": "extract",
+      "summary": "Read 5 fields; overall confidence 85%.",
+      "detail": {
+        "invoice_number": "INIT-4419",
+        "invoice_date": "2026-06-15",
+        "vendor_raw": "Initech, Inc.",
+        "po_reference": "PO-1004",
+        "subtotal": "\u2014",
+        "tax": "\u2014",
+        "total": "$6,750.00",
+        "line_item_count": 1,
+        "field_confidence": {
+          "invoice_number": 0.95,
+          "po_reference": 0.95,
+          "invoice_date": 0.95,
+          "vendor": 0.62,
+          "total": 0.95,
+          "subtotal": 0.0,
+          "tax": 0.0
+        }
+      },
+      "findings": []
+    },
+    {
+      "stage": "validate",
+      "summary": "All validation checks passed (1 run).",
+      "detail": {},
+      "findings": [
+        {
+          "code": "REQUIRED_FIELDS_PRESENT",
+          "severity": "OK",
+          "message": "All critical fields (number, date, total, vendor) were read.",
+          "evidence": {}
+        }
+      ]
+    },
+    {
+      "stage": "match",
+      "summary": "Vendor: Initech Software; PO: PO-1004 (explicit-reference).",
+      "detail": {
+        "vendor_id": "V004",
+        "po": "PO-1004",
+        "po_remaining_balance": "$0.00"
+      },
+      "findings": [
+        {
+          "code": "VENDOR_APPROVED",
+          "severity": "OK",
+          "message": "Vendor resolved to Initech Software (V004) [exact/alias].",
+          "evidence": {
+            "vendor_id": "V004",
+            "match_ratio": 1.0
+          }
+        },
+        {
+          "code": "PO_FOUND_EXPLICIT",
+          "severity": "OK",
+          "message": "Matched explicit PO reference PO-1004 ($6,750.00, Annual ERP license renewal).",
+          "evidence": {
+            "po_number": "PO-1004",
+            "basis": "explicit-reference"
+          }
+        }
+      ]
+    },
+    {
+      "stage": "rules",
+      "summary": "2 business-rule issue(s); worst = REVIEW (DUPLICATE_NEAR).",
+      "detail": {},
+      "findings": [
+        {
+          "code": "EXTRACTION_TRUSTED",
+          "severity": "OK",
+          "message": "Extraction confidence 85% clears the automation threshold.",
+          "evidence": {}
+        },
+        {
+          "code": "DUPLICATE_NEAR",
+          "severity": "REVIEW",
+          "message": "Possible duplicate: same vendor, same amount ($6,750.00) and same date (2026-06-15) as already-processed invoice #INIT-4401, but a different invoice number (#INIT-4419). Classic accidental double-billing \u2014 needs a human to confirm.",
+          "evidence": {
+            "this_invoice": "INIT-4419",
+            "matched_prior": "INIT-4401",
+            "amount": "6750.00",
+            "date": "2026-06-15"
+          }
+        },
+        {
+          "code": "SECOND_INVOICE_ON_SINGLE_PO",
+          "severity": "REVIEW",
+          "message": "PO PO-1004 is not marked for partial billing but $6,750.00 has already been billed against it. A second invoice here needs a human to confirm it isn't a duplicate or to raise a change order.",
+          "evidence": {
+            "already_billed": "6750.00",
+            "po_total": "6750.00"
+          }
+        },
+        {
+          "code": "AMOUNT_WITHIN_TOLERANCE",
+          "severity": "OK",
+          "message": "Invoice $6,750.00 is within tolerance of the PO total $6,750.00 (\u0394 $0.00, 0.0%).",
+          "evidence": {
+            "invoice_total": "6750.00",
+            "po_total": "6750.00",
+            "delta": "0.00"
+          }
+        }
+      ]
+    },
+    {
+      "stage": "decide",
+      "summary": "NEEDS_REVIEW (confidence 60%) \u2014 Cannot decide automatically \u2014 routed to a person with specific reasons.",
+      "detail": {
+        "primary_reasons": [
+          "[DUPLICATE_NEAR] Possible duplicate: same vendor, same amount ($6,750.00) and same date (2026-06-15) as already-processed invoice #INIT-4401, but a different invoice number (#INIT-4419). Classic accidental double-billing \u2014 needs a human to confirm.",
+          "[SECOND_INVOICE_ON_SINGLE_PO] PO PO-1004 is not marked for partial billing but $6,750.00 has already been billed against it. A second invoice here needs a human to confirm it isn't a duplicate or to raise a change order."
+        ],
+        "recommended_action": "Compare against the flagged prior invoice; pay only if it's a genuinely separate charge."
+      },
+      "findings": []
+    }
+  ]
+}

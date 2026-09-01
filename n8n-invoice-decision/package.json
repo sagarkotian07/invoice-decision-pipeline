@@ -1,0 +1,13 @@
+{
+  "name": "ps1-invoice-decision",
+  "version": "1.0.0",
+  "private": true,
+  "description": "PS-1 Invoice → Decision: Claude extraction + a deterministic decision engine, packaged as an importable n8n workflow.",
+  "scripts": {
+    "build": "node build_reconcile.js",
+    "test": "node tests/emulate-reconcile.js && node tests/emulate-nodes-reconcile.js",
+    "deploy": "node build_reconcile.js && node tests/deploy.js reconcile.workflow.json",
+    "samples": "python3 demo-batches/generate.py",
+    "smoke": "node tests/post_batch.js \"${N8N_BASE:-https://your-n8n-host.example.com}/webhook/invoice-decision\" demo-batches/1-core"
+  }
+}

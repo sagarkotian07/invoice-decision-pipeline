@@ -1,0 +1,6 @@
+invoice_number,invoice_date,vendor_name,vendor_gstin,invoice_total,matched_po_numbers,po_total_sum,result,vendor_match,total_match,dates_fy,po_num_consistent,date_order,match_basis,confidence,flags,reason
+INV-1006,2025-07-01,,29AABCS1429B1ZX,20000,"PO2279, PO2281 (2)",20000,Match,agrees,agrees,agrees,agrees,agrees,PR/PO number,high,Invoice spans 2 POs (total vs Σ POs),
+
+invoice_number,line_no,description,hsn_sac,quantity,unit,rate,gst_rate,amount,paired_po_line,po_qty,po_unit_price,line_match,rate_match,qty_flag,hsn_valid,gst_correct
+INV-1006,1,PVC Valve,8481,10,,800,0.18,8000,PO2279#1,10,800,agrees,agrees,agrees,agrees,agrees
+INV-1006,2,Steel Fitting,7307,20,,600,0.18,12000,PO2281#1,20,600,agrees,agrees,agrees,agrees,agrees

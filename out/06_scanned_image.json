@@ -1,0 +1,108 @@
+{
+  "source_file": "samples/06_scanned_image.pdf",
+  "decision": {
+    "outcome": "NEEDS_REVIEW",
+    "confidence": 0.6,
+    "headline": "Cannot decide automatically \u2014 routed to a person with specific reasons.",
+    "primary_reasons": [
+      "[DOCUMENT_UNREADABLE] Document could not be read automatically (scanned-image; extraction confidence 0%). Cannot match a vendor or PO without the data \u2014 routing to manual key-entry / OCR review."
+    ],
+    "recommended_action": "Assign to an AP specialist to resolve the flagged items."
+  },
+  "extracted": {
+    "invoice_number": null,
+    "invoice_date": null,
+    "vendor_raw": null,
+    "vendor_resolved": null,
+    "vendor_id": null,
+    "po_reference": null,
+    "currency": "USD",
+    "subtotal": null,
+    "tax": null,
+    "total": null,
+    "line_items": [],
+    "extraction_confidence": 0.0
+  },
+  "matched_po": null,
+  "ingest": {
+    "source_kind": "scanned-image",
+    "ocr_needed": true,
+    "ingest_confidence": 0.15
+  },
+  "trace": [
+    {
+      "stage": "ingest",
+      "summary": "No usable text layer (chars=0, digits=0). Document appears to be a scanned image; OCR required.",
+      "detail": {
+        "source_kind": "scanned-image",
+        "ocr_needed": true,
+        "ingest_confidence": 0.15,
+        "page_count": 1
+      },
+      "findings": []
+    },
+    {
+      "stage": "extract",
+      "summary": "Read 0 fields; overall confidence 0%.",
+      "detail": {
+        "invoice_number": null,
+        "invoice_date": null,
+        "vendor_raw": null,
+        "po_reference": null,
+        "subtotal": "\u2014",
+        "tax": "\u2014",
+        "total": "\u2014",
+        "line_item_count": 0,
+        "field_confidence": {
+          "invoice_number": 0.0,
+          "po_reference": 0.0,
+          "invoice_date": 0.0,
+          "vendor": 0.0,
+          "total": 0.0,
+          "subtotal": 0.0,
+          "tax": 0.0
+        }
+      },
+      "findings": []
+    },
+    {
+      "stage": "validate",
+      "summary": "Skipped \u2014 nothing to validate (document unreadable).",
+      "detail": {},
+      "findings": []
+    },
+    {
+      "stage": "match",
+      "summary": "Skipped \u2014 document unreadable, nothing to match.",
+      "detail": {},
+      "findings": []
+    },
+    {
+      "stage": "rules",
+      "summary": "Skipped rule checks \u2014 no data to evaluate.",
+      "detail": {},
+      "findings": [
+        {
+          "code": "DOCUMENT_UNREADABLE",
+          "severity": "REVIEW",
+          "message": "Document could not be read automatically (scanned-image; extraction confidence 0%). Cannot match a vendor or PO without the data \u2014 routing to manual key-entry / OCR review.",
+          "evidence": {
+            "source_kind": "scanned-image",
+            "extraction_confidence": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "stage": "decide",
+      "summary": "NEEDS_REVIEW (confidence 60%) \u2014 Cannot decide automatically \u2014 routed to a person with specific reasons.",
+      "detail": {
+        "primary_reasons": [
+          "[DOCUMENT_UNREADABLE] Document could not be read automatically (scanned-image; extraction confidence 0%). Cannot match a vendor or PO without the data \u2014 routing to manual key-entry / OCR review."
+        ],
+        "recommended_action": "Assign to an AP specialist to resolve the flagged items."
+      },
+      "findings": []
+    }
+  ]
+}

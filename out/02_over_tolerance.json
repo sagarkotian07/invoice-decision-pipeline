@@ -1,0 +1,172 @@
+{
+  "source_file": "samples/02_over_tolerance.pdf",
+  "decision": {
+    "outcome": "HOLD_FOR_APPROVAL",
+    "confidence": 0.75,
+    "headline": "Matched, but a human must approve a bounded variance before payment.",
+    "primary_reasons": [
+      "[AMOUNT_OVER_TOLERANCE] Invoice $8,540.00 is $540.00 (6.8%) over the PO total $8,000.00 \u2014 beyond auto tolerance ($160.00) but within the approver band ($2,500.00). Route to an approver for variance sign-off."
+    ],
+    "recommended_action": "Route to the budget approver for variance sign-off."
+  },
+  "extracted": {
+    "invoice_number": "NW-30541",
+    "invoice_date": "2026-06-20",
+    "vendor_raw": "Northwind Traders",
+    "vendor_resolved": "Northwind Traders",
+    "vendor_id": "V002",
+    "po_reference": "PO-1002",
+    "currency": "USD",
+    "subtotal": "7900.00",
+    "tax": "640.00",
+    "total": "8540.00",
+    "line_items": [
+      {
+        "description": "Executive reception desk",
+        "quantity": "1",
+        "unit_price": "5000.00",
+        "amount": "5000.00"
+      },
+      {
+        "description": "Lounge seating set",
+        "quantity": "1",
+        "unit_price": "2900.00",
+        "amount": "2900.00"
+      }
+    ],
+    "extraction_confidence": 0.845
+  },
+  "matched_po": "PO-1002",
+  "ingest": {
+    "source_kind": "text-pdf",
+    "ocr_needed": false,
+    "ingest_confidence": 0.98
+  },
+  "trace": [
+    {
+      "stage": "ingest",
+      "summary": "Extracted 534 chars from a born-digital PDF text layer.",
+      "detail": {
+        "source_kind": "text-pdf",
+        "ocr_needed": false,
+        "ingest_confidence": 0.98,
+        "page_count": 1
+      },
+      "findings": []
+    },
+    {
+      "stage": "extract",
+      "summary": "Read 7 fields; overall confidence 84%.",
+      "detail": {
+        "invoice_number": "NW-30541",
+        "invoice_date": "2026-06-20",
+        "vendor_raw": "Northwind Traders",
+        "po_reference": "PO-1002",
+        "subtotal": "$7,900.00",
+        "tax": "$640.00",
+        "total": "$8,540.00",
+        "line_item_count": 2,
+        "field_confidence": {
+          "invoice_number": 0.93,
+          "po_reference": 0.95,
+          "invoice_date": 0.95,
+          "vendor": 0.62,
+          "total": 0.95,
+          "subtotal": 0.92,
+          "tax": 0.9
+        }
+      },
+      "findings": []
+    },
+    {
+      "stage": "validate",
+      "summary": "All validation checks passed (2 run).",
+      "detail": {},
+      "findings": [
+        {
+          "code": "REQUIRED_FIELDS_PRESENT",
+          "severity": "OK",
+          "message": "All critical fields (number, date, total, vendor) were read.",
+          "evidence": {}
+        },
+        {
+          "code": "MATH_RECONCILES",
+          "severity": "OK",
+          "message": "Arithmetic checks out: subtotal + tax = $8,540.00.",
+          "evidence": {}
+        }
+      ]
+    },
+    {
+      "stage": "match",
+      "summary": "Vendor: Northwind Traders; PO: PO-1002 (explicit-reference).",
+      "detail": {
+        "vendor_id": "V002",
+        "po": "PO-1002",
+        "po_remaining_balance": "$8,000.00"
+      },
+      "findings": [
+        {
+          "code": "VENDOR_APPROVED",
+          "severity": "OK",
+          "message": "Vendor resolved to Northwind Traders (V002) [exact/alias].",
+          "evidence": {
+            "vendor_id": "V002",
+            "match_ratio": 1.0
+          }
+        },
+        {
+          "code": "PO_FOUND_EXPLICIT",
+          "severity": "OK",
+          "message": "Matched explicit PO reference PO-1002 ($8,000.00, Office furniture \u2014 reception refit).",
+          "evidence": {
+            "po_number": "PO-1002",
+            "basis": "explicit-reference"
+          }
+        }
+      ]
+    },
+    {
+      "stage": "rules",
+      "summary": "1 business-rule issue(s); worst = HOLD (AMOUNT_OVER_TOLERANCE).",
+      "detail": {},
+      "findings": [
+        {
+          "code": "EXTRACTION_TRUSTED",
+          "severity": "OK",
+          "message": "Extraction confidence 84% clears the automation threshold.",
+          "evidence": {}
+        },
+        {
+          "code": "NO_DUPLICATE",
+          "severity": "OK",
+          "message": "No matching invoice found in the ledger \u2014 not a duplicate.",
+          "evidence": {}
+        },
+        {
+          "code": "AMOUNT_OVER_TOLERANCE",
+          "severity": "HOLD",
+          "message": "Invoice $8,540.00 is $540.00 (6.8%) over the PO total $8,000.00 \u2014 beyond auto tolerance ($160.00) but within the approver band ($2,500.00). Route to an approver for variance sign-off.",
+          "evidence": {
+            "invoice_total": "8540.00",
+            "po_total": "8000.00",
+            "delta": "540.00",
+            "auto_tolerance": "160.0000",
+            "approver_band": "2500.00"
+          }
+        }
+      ]
+    },
+    {
+      "stage": "decide",
+      "summary": "HOLD_FOR_APPROVAL (confidence 75%) \u2014 Matched, but a human must approve a bounded variance before payment.",
+      "detail": {
+        "primary_reasons": [
+          "[AMOUNT_OVER_TOLERANCE] Invoice $8,540.00 is $540.00 (6.8%) over the PO total $8,000.00 \u2014 beyond auto tolerance ($160.00) but within the approver band ($2,500.00). Route to an approver for variance sign-off."
+        ],
+        "recommended_action": "Route to the budget approver for variance sign-off."
+      },
+      "findings": []
+    }
+  ]
+}

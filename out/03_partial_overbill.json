@@ -1,0 +1,162 @@
+{
+  "source_file": "samples/03_partial_overbill.pdf",
+  "decision": {
+    "outcome": "REJECT",
+    "confidence": 0.95,
+    "headline": "Blocked \u2014 must not be paid as-is.",
+    "primary_reasons": [
+      "[CUMULATIVE_OVERBILL] Cumulative overbilling: $46,000.00 already billed across [#GBX-5501 $22,000.00, #GBX-5540 $24,000.00] + this $12,000.00 = $58,000.00, which exceeds PO PO-1003 ($50,000.00) by $8,000.00 \u2014 beyond the approver band ($5,000.00). Blocking."
+    ],
+    "recommended_action": "Return to the vendor or raise a PO change order before any further payment."
+  },
+  "extracted": {
+    "invoice_number": "GBX-5588",
+    "invoice_date": "2026-06-25",
+    "vendor_raw": "Globex Corporation",
+    "vendor_resolved": "Globex Corporation",
+    "vendor_id": "V003",
+    "po_reference": "PO-1003",
+    "currency": "USD",
+    "subtotal": null,
+    "tax": null,
+    "total": "12000.00",
+    "line_items": [
+      {
+        "description": "Rack-mount servers (batch of",
+        "quantity": "3",
+        "unit_price": "2000.00",
+        "amount": "12000.00"
+      }
+    ],
+    "extraction_confidence": 0.801
+  },
+  "matched_po": "PO-1003",
+  "ingest": {
+    "source_kind": "text-pdf",
+    "ocr_needed": false,
+    "ingest_confidence": 0.98
+  },
+  "trace": [
+    {
+      "stage": "ingest",
+      "summary": "Extracted 340 chars from a born-digital PDF text layer.",
+      "detail": {
+        "source_kind": "text-pdf",
+        "ocr_needed": false,
+        "ingest_confidence": 0.98,
+        "page_count": 1
+      },
+      "findings": []
+    },
+    {
+      "stage": "extract",
+      "summary": "Read 5 fields; overall confidence 80%.",
+      "detail": {
+        "invoice_number": "GBX-5588",
+        "invoice_date": "2026-06-25",
+        "vendor_raw": "Globex Corporation",
+        "po_reference": "PO-1003",
+        "subtotal": "\u2014",
+        "tax": "\u2014",
+        "total": "$12,000.00",
+        "line_item_count": 1,
+        "field_confidence": {
+          "invoice_number": 0.95,
+          "po_reference": 0.95,
+          "invoice_date": 0.95,
+          "vendor": 0.62,
+          "total": 0.75,
+          "subtotal": 0.0,
+          "tax": 0.0
+        }
+      },
+      "findings": []
+    },
+    {
+      "stage": "validate",
+      "summary": "All validation checks passed (1 run).",
+      "detail": {},
+      "findings": [
+        {
+          "code": "REQUIRED_FIELDS_PRESENT",
+          "severity": "OK",
+          "message": "All critical fields (number, date, total, vendor) were read.",
+          "evidence": {}
+        }
+      ]
+    },
+    {
+      "stage": "match",
+      "summary": "Vendor: Globex Corporation; PO: PO-1003 (explicit-reference).",
+      "detail": {
+        "vendor_id": "V003",
+        "po": "PO-1003",
+        "po_remaining_balance": "$4,000.00"
+      },
+      "findings": [
+        {
+          "code": "VENDOR_APPROVED",
+          "severity": "OK",
+          "message": "Vendor resolved to Globex Corporation (V003) [exact/alias].",
+          "evidence": {
+            "vendor_id": "V003",
+            "match_ratio": 1.0
+          }
+        },
+        {
+          "code": "PO_FOUND_EXPLICIT",
+          "severity": "OK",
+          "message": "Matched explicit PO reference PO-1003 ($50,000.00, Data-center hardware, phased delivery (partial billing allowed)).",
+          "evidence": {
+            "po_number": "PO-1003",
+            "basis": "explicit-reference"
+          }
+        }
+      ]
+    },
+    {
+      "stage": "rules",
+      "summary": "1 business-rule issue(s); worst = REJECT (CUMULATIVE_OVERBILL).",
+      "detail": {},
+      "findings": [
+        {
+          "code": "EXTRACTION_TRUSTED",
+          "severity": "OK",
+          "message": "Extraction confidence 80% clears the automation threshold.",
+          "evidence": {}
+        },
+        {
+          "code": "NO_DUPLICATE",
+          "severity": "OK",
+          "message": "No matching invoice found in the ledger \u2014 not a duplicate.",
+          "evidence": {}
+        },
+        {
+          "code": "CUMULATIVE_OVERBILL",
+          "severity": "REJECT",
+          "message": "Cumulative overbilling: $46,000.00 already billed across [#GBX-5501 $22,000.00, #GBX-5540 $24,000.00] + this $12,000.00 = $58,000.00, which exceeds PO PO-1003 ($50,000.00) by $8,000.00 \u2014 beyond the approver band ($5,000.00). Blocking.",
+          "evidence": {
+            "already_billed": "46000.00",
+            "this_invoice": "12000.00",
+            "cumulative": "58000.00",
+            "po_total": "50000.00",
+            "overage": "8000.00",
+            "approver_band": "5000.0000",
+            "prior_invoices": "#GBX-5501 $22,000.00, #GBX-5540 $24,000.00"
+          }
+        }
+      ]
+    },
+    {
+      "stage": "decide",
+      "summary": "REJECT (confidence 95%) \u2014 Blocked \u2014 must not be paid as-is.",
+      "detail": {
+        "primary_reasons": [
+          "[CUMULATIVE_OVERBILL] Cumulative overbilling: $46,000.00 already billed across [#GBX-5501 $22,000.00, #GBX-5540 $24,000.00] + this $12,000.00 = $58,000.00, which exceeds PO PO-1003 ($50,000.00) by $8,000.00 \u2014 beyond the approver band ($5,000.00). Blocking."
+        ],
+        "recommended_action": "Return to the vendor or raise a PO change order before any further payment."
+      },
+      "findings": []
+    }
+  ]
+}

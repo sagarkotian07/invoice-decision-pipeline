@@ -1,0 +1,35 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+*.egg-info/
+.eggs/
+.pytest_cache/
+
+# --- Node ---
+node_modules/
+npm-debug.log*
+yarn-error.log*
+.npm/
+
+# --- macOS ---
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+
+# --- Local tooling / config (never commit) ---
+.claude/
+.env
+.env.*
+*.local.json
+# ...except this one: it holds only n8n credential IDs (not keys) and
+# `npm run build` needs it to keep the Claude node wired.
+!n8n-invoice-decision/deploy.local.json
+
+# NOTE: out/ and n8n-invoice-po-match/samples/out/ are committed on purpose.
+# They are example pipeline output that makes the README's claims checkable
+# without running anything. Please don't "fix" this by ignoring them.

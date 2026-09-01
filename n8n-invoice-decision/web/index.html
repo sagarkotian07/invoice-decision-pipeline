@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Invoice ↔ PO Reconciliation</title>
+<style>
+  :root{
+    --bg:#f6f8fc; --surface:#ffffff; --fill:#eef2f9; --line:#e4e9f2;
+    --ink:#16203a; --muted:#6b7690;
+    --brand:#2f6bff; --brand-d:#2357db; --brand-soft:#eaf1ff;
+    --green:#16a34a; --green-s:#e8f8ee; --amber:#c2790a; --amber-s:#fdf3e3;
+    --red:#dc2626; --red-s:#fdecec; --slate:#64748b; --slate-s:#eef1f6;
+    --sh:0 1px 2px rgba(16,24,40,.06), 0 6px 20px rgba(16,24,40,.05);
+    --sh-sm:0 1px 2px rgba(16,24,40,.06);
+    --r:12px;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased}
+  .num{font-variant-numeric:tabular-nums}
+  a{color:var(--brand);text-decoration:none}
+  button{font:inherit;cursor:pointer;border:0;background:none;color:inherit}
+  .btn{display:inline-flex;align-items:center;gap:8px;background:var(--brand);color:#fff;border-radius:9px;
+    padding:10px 16px;font-weight:600;box-shadow:var(--sh-sm);transition:.15s}
+  .btn:hover{background:var(--brand-d)}
+  .btn:disabled{background:#c7d2e8;color:#fff;cursor:not-allowed;box-shadow:none}
+  .btn.ghost{background:var(--surface);color:var(--ink);border:1px solid var(--line);box-shadow:none;font-weight:500}
+  .btn.ghost:hover{background:var(--fill)}
+  .btn.sm{padding:7px 12px;font-size:13px}
+  svg.i{width:18px;height:18px;flex:none;stroke:currentColor;stroke-width:1.8;fill:none;stroke-linecap:round;stroke-linejoin:round}
+  .muted{color:var(--muted)}
+
+  /* ---- app shell ---- */
+  .app{display:grid;grid-template-columns:248px 1fr;height:100vh}
+  .sidebar{background:var(--surface);border-right:1px solid var(--line);display:flex;flex-direction:column;padding:16px 12px;gap:6px}
+  .brand{display:flex;align-items:center;gap:10px;padding:8px 10px 14px;font-weight:800;font-size:16px;letter-spacing:-.2px}
+  .brand .mark{width:26px;height:26px;border-radius:8px;background:linear-gradient(135deg,#4c86ff,#2f6bff);display:grid;place-items:center;color:#fff;box-shadow:var(--sh-sm)}
+  .nav{display:flex;flex-direction:column;gap:3px}
+  .nav a{display:flex;align-items:center;gap:11px;padding:9px 11px;border-radius:9px;color:var(--muted);font-weight:600;cursor:pointer}
+  .nav a:hover{background:var(--fill);color:var(--ink)}
+  .nav a.on{background:var(--brand-soft);color:var(--brand)}
+  .side-foot{margin-top:auto;border-top:1px solid var(--line);padding-top:12px;display:flex;flex-direction:column;gap:8px}
+  .status{display:flex;align-items:center;gap:9px;font-size:12.5px;color:var(--muted);padding:0 6px}
+  .dot{width:9px;height:9px;border-radius:50%;background:var(--green);box-shadow:0 0 0 3px var(--green-s)}
+  .dot.off{background:var(--red);box-shadow:0 0 0 3px var(--red-s)}
+  .set{display:none;flex-direction:column;gap:7px;background:var(--fill);border-radius:10px;padding:10px}
+  .set.open{display:flex}
+  .set label{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px}
+  input{font:inherit;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:9px 10px;width:100%}
+  input:focus,.drop:focus-visible,.nav a:focus-visible,button:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+
+  /* ---- main ---- */
+  .main{overflow-y:auto}
+  .wrap{max-width:960px;margin:0 auto;padding:26px 28px 60px}
+  .page-head h1{margin:0;font-size:20px;letter-spacing:-.3px}
+  .page-head p{margin:4px 0 22px;color:var(--muted)}
+
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--sh)}
+  /* upload */
+  .up{padding:18px}
+  .drop{border:1.5px dashed #cdd6e6;border-radius:12px;background:#fbfcfe;padding:30px 20px;text-align:center;cursor:pointer;transition:.15s}
+  .drop:hover{border-color:var(--brand);background:var(--brand-soft)}
+  .drop.drag{border-color:var(--brand);background:var(--brand-soft)}
+  .drop .up-ic{width:44px;height:44px;border-radius:12px;background:var(--brand-soft);color:var(--brand);display:grid;place-items:center;margin:0 auto 12px}
+  .drop .up-ic svg{width:22px;height:22px}
+  .drop-t{font-weight:700;font-size:15px}
+  .drop-s{color:var(--muted);font-size:13px;margin-top:4px}
+  .files{display:flex;flex-direction:column;gap:7px;margin-top:14px}
+  .frow{display:flex;align-items:center;gap:11px;border:1px solid var(--line);border-radius:10px;padding:9px 11px;background:#fff}
+  .frow .fic{width:30px;height:30px;border-radius:8px;background:var(--red-s);color:var(--red);display:grid;place-items:center;flex:none}
+  .frow .fic svg{width:16px;height:16px}
+  .frow .fn{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .frow .fs{color:var(--muted);font-size:12.5px;flex:none}
+  .frow .rm{margin-left:auto;color:var(--muted);width:28px;height:28px;border-radius:7px;display:grid;place-items:center}
+  .frow .rm:hover{background:var(--red-s);color:var(--red)}
+  .up-actions{display:flex;align-items:center;gap:12px;margin-top:14px}
+  .up-actions .count{color:var(--muted);font-size:13px}
+
+  /* stepper */
+  .stepper{display:flex;align-items:center;gap:6px;margin:16px 0 4px;flex-wrap:wrap}
+  .step{display:flex;align-items:center;gap:9px;padding:9px 13px;border:1px solid var(--line);border-radius:999px;background:#fff;color:var(--muted);font-weight:600;font-size:13px;opacity:.6;transition:.25s}
+  .step .sd{width:16px;height:16px;border-radius:50%;border:2px solid #cdd6e6;display:grid;place-items:center}
+  .step.on{opacity:1;color:var(--brand);border-color:#c3d5ff;background:var(--brand-soft)}
+  .step.on .sd{border-color:var(--brand);animation:pulse 1s infinite}
+  .step.done{opacity:1;color:var(--green);border-color:#bfe8cd;background:var(--green-s)}
+  .step.done .sd{border-color:var(--green);background:var(--green);color:#fff}
+  .step .sd svg{width:11px;height:11px;stroke-width:3}
+  .sep{width:16px;height:1.5px;background:var(--line)}
+  @keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(47,107,255,.3)}50%{box-shadow:0 0 0 4px rgba(47,107,255,0)}}
+
+  /* results */
+  .rhead{display:flex;align-items:baseline;justify-content:space-between;margin:24px 2px 12px}
+  .rhead h2{margin:0;font-size:16px}
+  .tiles{display:grid;grid-template-columns:repeat(6,1fr);gap:10px}
+  @media(max-width:760px){.tiles{grid-template-columns:repeat(3,1fr)}}
+  .tile{background:var(--surface);border:1px solid var(--line);border-radius:11px;padding:12px 13px;box-shadow:var(--sh-sm)}
+  .tile .n{font-size:22px;font-weight:800;letter-spacing:-.5px}
+  .tile .l{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-top:1px}
+  .tile.b-green .n{color:var(--green)} .tile.b-amber .n{color:var(--amber)} .tile.b-red .n{color:var(--red)} .tile.b-brand .n{color:var(--brand)}
+
+  .sect{margin-top:22px}
+  .sect-h{display:flex;align-items:center;gap:9px;margin:0 2px 10px;font-size:13px;font-weight:700;color:var(--ink)}
+  .sect-h .c{font-size:12px;color:var(--muted);font-weight:600;background:var(--fill);border-radius:999px;padding:1px 9px}
+  .item{background:var(--surface);border:1px solid var(--line);border-radius:11px;box-shadow:var(--sh-sm);padding:13px 14px;margin-bottom:9px}
+  .item.warn{border-left:3px solid var(--amber)} .item.bad{border-left:3px solid var(--red)} .item.flag{border-left:3px solid var(--slate)}
+  .row1{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .pill{font-size:10.5px;font-weight:800;letter-spacing:.4px;padding:3px 9px;border-radius:999px;white-space:nowrap}
+  .p-MATCHED{background:var(--green-s);color:var(--green)}
+  .p-VARIANCE{background:var(--amber-s);color:var(--amber)}
+  .p-REVIEW{background:var(--brand-soft);color:var(--brand)}
+  .p-MISMATCH{background:var(--red-s);color:var(--red)}
+  .p-MISSING{background:var(--amber-s);color:var(--amber)}
+  .p-FLAG{background:var(--slate-s);color:var(--slate)}
+  .p-DUP{background:var(--red-s);color:var(--red)}
+  .fname{display:inline-flex;align-items:center;gap:6px;font-weight:700}
+  .fname svg{width:14px;height:14px;color:var(--slate)}
+  .arrow{color:var(--muted);font-weight:400}
+  .row1 .right{margin-left:auto;color:var(--muted);font-size:12.5px}
+  .meta{color:var(--muted);font-size:12.5px;margin-top:6px}
+  .via{font-size:11.5px;color:var(--brand);background:var(--brand-soft);padding:1px 8px;border-radius:999px}
+  .exp{color:var(--muted);font-size:12.5px;margin-left:6px;text-decoration:underline;cursor:pointer}
+  .detail{display:none;margin-top:9px;border-top:1px dashed var(--line);padding-top:9px}
+  .detail.open{display:block}
+  .kv{display:grid;grid-template-columns:auto 1fr auto 1fr;gap:5px 14px;font-size:12.5px}
+  .kv .k{color:var(--muted)}
+  .p-PARTIAL{background:var(--brand-soft);color:var(--brand)}
+  .chip2{font-size:10.5px;font-weight:600;color:var(--muted);background:var(--fill);border:1px solid var(--line);border-radius:999px;padding:2px 8px}
+  .chip2.warn{background:var(--amber-s);color:var(--amber);border-color:#f3ddb0}
+  .ltab{width:100%;border-collapse:collapse;margin:6px 0}
+  .ltab th,.ltab td{text-align:left;padding:4px 8px;border-bottom:1px solid var(--line);font-size:12px}
+  .ltab th{color:var(--muted);text-transform:none;letter-spacing:0;font-size:11px}
+  .dnote{font-size:12.5px;margin-top:9px}
+  .dflag{font-size:12px;color:var(--amber);margin-top:4px}
+  .empty{text-align:center;color:var(--muted);padding:34px 20px}
+  .empty .eic{width:46px;height:46px;border-radius:12px;background:var(--fill);display:grid;place-items:center;margin:0 auto 12px;color:var(--slate)}
+
+  /* history */
+  table{width:100%;border-collapse:collapse}
+  th,td{text-align:left;padding:11px 12px;border-bottom:1px solid var(--line);font-size:13px}
+  th{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.4px}
+  tbody tr{cursor:pointer}
+  tbody tr:hover{background:var(--fill)}
+  .hide{display:none!important}
+  .err{color:var(--red);background:var(--red-s);border:1px solid #f6c9c9;border-radius:10px;padding:10px 12px;margin-top:12px;font-size:13px}
+
+  @media(max-width:720px){
+    .app{grid-template-columns:1fr;grid-template-rows:auto 1fr}
+    .sidebar{flex-direction:row;align-items:center;padding:8px 12px;overflow-x:auto;gap:12px}
+    .brand{padding:2px 4px} .nav{flex-direction:row} .side-foot{margin:0 0 0 auto;border:0;padding:0;flex-direction:row;align-items:center}
+    .set{position:absolute;top:56px;right:12px;z-index:9;box-shadow:var(--sh);width:280px}
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand"><span class="mark">◈</span> Reconcile</div>
+    <nav class="nav">
+      <a id="nav-reconcile" class="on" onclick="nav('reconcile')" tabindex="0">
+        <svg class="i" viewBox="0 0 24 24"><path d="M4 7h16M4 12h10M4 17h7"/><path d="M15 15l2 2 4-4"/></svg> Reconcile</a>
+      <a id="nav-history" onclick="nav('history')" tabindex="0">
+        <svg class="i" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 4v4h4"/><path d="M12 8v4l3 2"/></svg> History</a>
+      <a id="nav-memory" onclick="nav('memory')" tabindex="0">
+        <svg class="i" viewBox="0 0 24 24"><path d="M12 3l9 5-9 5-9-5 9-5z"/><path d="M3 13l9 5 9-5"/></svg> Memory</a>
+    </nav>
+    <div class="side-foot">
+      <div class="status"><span id="dot" class="dot"></span><span id="statusTxt">Webhook connected</span></div>
+      <button class="btn ghost sm" onclick="toggleSet()"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1l2-1.6-2-3.4-2.4 1a7 7 0 0 0-1.7-1l-.3-2.5H10.5l-.3 2.5a7 7 0 0 0-1.7 1l-2.4-1-2 3.4 2 1.6a7 7 0 0 0 0 2l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 1.7 1l.3 2.5h3l.3-2.5a7 7 0 0 0 1.7-1l2.4 1 2-3.4-2-1.6a7 7 0 0 0 .1-1z"/></svg> Webhook settings</button>
+      <div id="set" class="set">
+        <label>n8n webhook URL</label>
+        <input id="hook" placeholder="https://…/webhook/invoice-decision" />
+        <button class="btn sm" onclick="saveCfg()">Save</button>
+      </div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="wrap">
+      <!-- ============ RECONCILE VIEW ============ -->
+      <section id="view-reconcile">
+        <div class="page-head"><h1>Reconcile invoices &amp; purchase orders</h1>
+          <p>Upload a batch of invoice and PO PDFs — it reads them and shows what matches, and what's missing.</p></div>
+
+        <div class="card up">
+          <input id="file" type="file" accept="application/pdf,image/*" multiple class="hide" />
+          <div id="drop" class="drop" role="button" tabindex="0" onclick="picker()" onkeydown="if(event.key==='Enter')picker()">
+            <div class="up-ic"><svg class="i" viewBox="0 0 24 24"><path d="M12 16V4"/><path d="M7 9l5-5 5 5"/><path d="M5 20h14"/></svg></div>
+            <div class="drop-t">Drag your invoice &amp; PO PDFs here</div>
+            <div class="drop-s">or click to browse — PDF files only (scans or phone photos are fine, saved as PDF)</div>
+          </div>
+          <div id="files" class="files hide"></div>
+          <div class="up-actions">
+            <button id="go" class="btn" onclick="reconcile()" disabled>Reconcile <svg class="i" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
+            <span id="count" class="count">No files selected yet</span>
+          </div>
+          <div id="err" class="err hide"></div>
+        </div>
+
+        <div id="stepper" class="stepper hide"></div>
+        <div id="results"></div>
+      </section>
+
+      <!-- ============ HISTORY VIEW ============ -->
+      <section id="view-history" class="hide">
+        <div class="page-head"><h1>History</h1><p>Every batch you've reconciled — click a row to reopen its report.</p></div>
+        <div id="dash"></div>
+      </section>
+
+      <!-- ============ MEMORY VIEW ============ -->
+      <section id="view-memory" class="hide">
+        <div class="page-head"><h1>Memory</h1>
+          <p>Every invoice processed across all your uploads. This is what lets the tool catch a <b>re-submitted bill</b> or a <b>PO billed twice</b> across different batches — even weeks apart.</p></div>
+        <div id="memview"></div>
+      </section>
+    </div>
+  </main>
+</div>
+
+<script>
+const $ = (id)=>document.getElementById(id);
+let FILES = [];
+const IC_DOC = '<svg viewBox="0 0 24 24" class="i"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>';
+const IC_CHK = '<svg viewBox="0 0 24 24" class="i"><path d="M5 12l4 4 10-10"/></svg>';
+
+/* ---------- config ---------- */
+/* Set your own n8n webhook URL in Settings; it is remembered in localStorage. */
+$('hook').value = localStorage.ap_hook || '';
+function refreshStatus(){ const ok=!!$('hook').value.trim(); $('dot').className='dot'+(ok?'':' off'); $('statusTxt').textContent=ok?'Webhook connected':'Webhook not set'; }
+refreshStatus();
+function toggleSet(){ $('set').classList.toggle('open'); }
+function saveCfg(){ localStorage.ap_hook=$('hook').value.trim(); refreshStatus(); $('set').classList.remove('open'); }
+
+/* ---------- nav ---------- */
+function nav(v){
+  ['reconcile','history','memory'].forEach(x=>{ $('view-'+x).classList.toggle('hide',x!==v); $('nav-'+x).classList.toggle('on',x===v); });
+  if(v==='history') renderDash();
+  if(v==='memory') renderMemory();
+}
+
+/* ---------- file selection ---------- */
+function picker(){ $('file').click(); }
+$('file').onchange = e=>addFiles([...e.target.files]);
+['dragover','dragenter'].forEach(ev=>$('drop').addEventListener(ev,e=>{e.preventDefault();$('drop').classList.add('drag');}));
+['dragleave','dragend','drop'].forEach(ev=>$('drop').addEventListener(ev,e=>{e.preventDefault();$('drop').classList.remove('drag');}));
+$('drop').addEventListener('drop',e=>{ if(e.dataTransfer.files.length) addFiles([...e.dataTransfer.files]); });
+function addFiles(fs){
+  const ok=fs.filter(f=>/\.(pdf|png|jpe?g|webp|gif)$/i.test(f.name));
+  const seen=new Set(FILES.map(f=>f.name+f.size));
+  ok.forEach(f=>{ if(!seen.has(f.name+f.size)) FILES.push(f); });
+  $('file').value=''; renderFiles();
+}
+function removeFile(i){ FILES.splice(i,1); renderFiles(); }
+function renderFiles(){
+  const box=$('files'); box.classList.toggle('hide', !FILES.length);
+  box.innerHTML = FILES.map((f,i)=>`<div class="frow"><span class="fic">${IC_DOC}</span>
+    <span class="fn" title="${esc(f.name)}">${esc(f.name)}</span><span class="fs num">${fmtSize(f.size)}</span>
+    <button class="rm" aria-label="Remove ${esc(f.name)}" onclick="removeFile(${i})">✕</button></div>`).join('');
+  $('go').disabled = !FILES.length;
+  $('count').textContent = FILES.length ? `${FILES.length} file${FILES.length>1?'s':''} ready` : 'No files selected yet';
+}
+
+/* ---------- reconcile ---------- */
+const STEPS=['Uploading','Reading with AI','Matching','Done'];
+function renderStepper(active,done){
+  $('stepper').classList.remove('hide');
+  $('stepper').innerHTML = STEPS.map((s,i)=>{
+    const cls = i<done?'done':(i===active?'on':'');
+    const dot = i<done?`<span class="sd">${IC_CHK}</span>`:'<span class="sd"></span>';
+    return `${i?'<span class="sep"></span>':''}<span class="step ${cls}">${dot}${s}</span>`;
+  }).join('');
+}
+async function reconcile(){
+  const hook=$('hook').value.trim();
+  if(!hook){ showErr('Set your webhook URL in the sidebar (Webhook settings).'); $('set').classList.add('open'); return; }
+  if(!FILES.length) return;
+  $('err').classList.add('hide'); $('go').disabled=true; $('results').innerHTML='';
+  const batch=FILES.slice();
+  renderStepper(0,0);
+  let step=0; const tick=setInterval(()=>{ if(step<2){ step++; renderStepper(step,step); } },900);
+  try{
+    const files=await Promise.all(batch.map(async f=>({filename:f.name,content_type:f.type||'',content_base64:await toB64(f)})));
+    renderStepper(2,2);
+    const resp=await fetch(hook,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({files})});
+    if(!resp.ok) throw new Error('Webhook returned HTTP '+resp.status+' — '+(await resp.text()).slice(0,160));
+    const rep=await resp.json();
+    clearInterval(tick); renderStepper(3,4);
+    setTimeout(()=>$('stepper').classList.add('hide'),700);
+    renderResults(rep);
+    saveBatch(rep);
+    if(rep.memory!==undefined) localStorage.ap_memory=JSON.stringify(rep.memory);
+    FILES=[]; renderFiles();
+  }catch(e){ clearInterval(tick); $('stepper').classList.add('hide'); showErr(e.message); $('go').disabled=!FILES.length; }
+}
+function showErr(m){ $('err').textContent=m; $('err').classList.remove('hide'); }
+
+/* ---------- render results ---------- */
+function renderResults(rep, el){
+  el = el || $('results');
+  const s=rep.summary;
+  const clean=(rep.matched||[]).filter(m=>m.verdict.status==='MATCHED').length;
+  const review=(rep.matched||[]).length-clean;
+  const tiles=[['Documents',s.documents,''],['Matched',clean,'b-green'],['Needs review',review,review?'b-amber':''],
+    ['PO missing',s.po_missing,s.po_missing?'b-amber':''],['Invoice missing',s.invoice_missing,s.invoice_missing?'b-amber':''],
+    ['Flags',(s.unreadable+s.duplicates+(s.cross_run_duplicates||0)+(s.cumulative_flags||0)),(s.unreadable+s.duplicates+(s.cross_run_duplicates||0)+(s.cumulative_flags||0))?'b-red':'']];
+  let h=`<div class="rhead"><h2>Reconciliation result</h2><span class="muted">${s.documents} documents · ${s.invoices} invoices · ${s.pos} POs</span></div>
+    <div class="tiles">${tiles.map(([l,n,c])=>`<div class="tile ${c}"><div class="n num">${n}</div><div class="l">${l}</div></div>`).join('')}</div>`;
+
+  if((rep.matched||[]).length){ h+=section('Matched pairs',rep.matched.length,rep.matched.map((m,i)=>{
+    const v=m.verdict,c=v.comparison,cls=v.status==='MISMATCH'?'bad':((v.status==='MATCHED'||v.status==='PARTIAL')?'':'warn');
+    const multi=m.pos&&m.pos.length>1;
+    const poDisp=multi?m.pos.map(p=>`<span class="fname">${IC_DOC}${esc(p.filename)}</span>`).join(' '):`<span class="fname">${IC_DOC}${esc(m.po.filename)}</span>`;
+    const poNum=multi?m.pos.map(p=>p.po_number).join(', '):(m.po.po_number||'—');
+    const gf=m.gst_check?(m.gst_check.hsn_flags.length+m.gst_check.rate_flags.length+(m.gst_check.tax_reconciles===false?1:0)):0;
+    const lf=m.line_check&&m.line_check.flags?m.line_check.flags.length:0;
+    const chips=[];
+    if(m.relationship==='invoice-spans-POs') chips.push(`<span class="chip2">${m.pos.length} POs</span>`);
+    if(m.relationship==='split-billing') chips.push(`<span class="chip2">split · ${m.split_group.invoices} invoices</span>`);
+    if(lf) chips.push(`<span class="chip2 warn">${lf} line flag${lf>1?'s':''}</span>`);
+    if(gf) chips.push(`<span class="chip2 warn">GST · ${gf}</span>`);
+    if(m.cross_run) chips.push(`<span class="chip2 warn">already processed</span>`);
+    if(m.cumulative) chips.push(`<span class="chip2 warn">over-billed ${esc(m.cumulative.over)}</span>`);
+    return `<div class="item ${cls}"><div class="row1">
+        <span class="pill p-${v.status}">${v.status}</span>
+        <span class="fname">${IC_DOC}${esc(m.invoice.filename)}</span><span class="arrow">↔</span>${poDisp}
+        ${m.duplicate?'<span class="pill p-DUP">DUPLICATE</span>':''}${chips.join('')}
+        <span class="right num">inv ${esc(c.invoice_total)} · po ${esc(c.po_total)}${c.delta&&c.delta!=='$0.00'?' · Δ '+esc(c.delta):''}</span>
+      </div>
+      <div class="meta">${esc(m.invoice.invoice_number||'—')} ↔ ${esc(poNum)} · ${esc(m.po.vendor||m.invoice.vendor||'')} <span class="via">via ${esc(m.basis||'')}</span> <span class="exp" onclick="tgl('d${i}')">details</span></div>
+      <div class="meta">${esc((v.reasons[0]||'').replace(/^\[[^\]]+\]\s*/,''))}</div>
+      <div id="d${i}" class="detail">
+        ${kv([['Invoice #',m.invoice.invoice_number],['PO #',poNum],['Vendor',m.po.vendor||m.invoice.vendor],['Seller GSTIN',m.invoice.seller_gstin||m.po.seller_gstin],['Invoice date',m.invoice.date],['PO date',m.po.date]])}
+        ${lineTable(m.line_check)}${gstRow(m.gst_check)}${memNote(m)}
+      </div></div>`;
+  }).join('')); }
+
+  if((rep.cross_run_duplicates||[]).length){ h+=section('Already processed (prior run)',rep.cross_run_duplicates.length,rep.cross_run_duplicates.map(x=>
+    `<div class="item warn"><div class="row1"><span class="pill p-DUP">ALREADY PROCESSED</span>
+      <span class="fname">${IC_DOC}${esc(x.invoice.filename)}</span><span class="chip2">${esc(x.kind)}</span>
+      <span class="right num">${esc(x.invoice.total||'')}</span></div>
+      <div class="meta">invoice ${esc(x.invoice.invoice_number||'—')} · ${esc(x.invoice.vendor||'')} — ${esc(x.reason)}</div>
+      ${x.prior?`<div class="meta">prior: ${esc(x.prior.invoice_number||'—')} · ${esc(x.prior.amount||'')}${x.prior.run_at?' · '+esc(new Date(x.prior.run_at).toLocaleString()):''}</div>`:''}</div>`).join('')); }
+
+  if((rep.cumulative_flags||[]).length){ h+=section('Cumulative over-billing (across runs)',rep.cumulative_flags.length,rep.cumulative_flags.map(x=>
+    `<div class="item bad"><div class="row1"><span class="pill p-MISMATCH">OVER-BILLED</span>
+      <span class="fname">PO ${esc(x.po_number)}</span>
+      <span class="right num">cum ${esc(x.cumulative)} · over ${esc(x.over)}</span></div>
+      <div class="meta">already billed ${esc(x.prior_billed)} in ${x.prior_count} prior invoice${x.prior_count>1?'s':''}; this batch adds ${esc(x.this_batch)} — the PO is ${esc(x.po_total)}. Flag only — each invoice's verdict is unchanged.</div></div>`).join('')); }
+
+  if((rep.po_missing||[]).length){ h+=section('Invoices without a PO',rep.po_missing.length,rep.po_missing.map(x=>
+    `<div class="item warn"><div class="row1"><span class="pill p-MISSING">PO MISSING</span>
+      <span class="fname">${IC_DOC}${esc(x.invoice.filename)}</span>${x.cross_run?'<span class="chip2 warn">already processed</span>':''}
+      <span class="right num">${esc(x.invoice.total||'')}</span></div>
+      <div class="meta">invoice ${esc(x.invoice.invoice_number||'—')} · ${esc(x.invoice.vendor||'')} — ${esc(x.reason)}</div></div>`).join('')); }
+
+  if((rep.invoice_missing||[]).length){ h+=section('POs without an invoice',rep.invoice_missing.length,rep.invoice_missing.map(x=>
+    `<div class="item warn"><div class="row1"><span class="pill p-MISSING">INVOICE MISSING</span>
+      <span class="fname">${IC_DOC}${esc(x.po.filename)}</span>
+      <span class="right num">${esc(x.po.total||'')}</span></div>
+      <div class="meta">PO ${esc(x.po.po_number||'—')} · ${esc(x.po.vendor||'')} — ${esc(x.reason)}</div></div>`).join('')); }
+
+  const flags=[...(rep.unreadable||[]).map(x=>({p:'UNREADABLE',f:x.filename,r:x.reason})),
+               ...(rep.duplicates||[]).map(x=>({p:'DUPLICATE',f:x.kind+' duplicate',r:x.reason}))];
+  if(flags.length){ h+=section('Flags',flags.length,flags.map(f=>
+    `<div class="item flag"><div class="row1"><span class="pill p-${f.p==='DUPLICATE'?'DUP':'FLAG'}">${f.p}</span>
+      <span class="fname">${IC_DOC}${esc(f.f)}</span></div><div class="meta">${esc(f.r)}</div></div>`).join('')); }
+
+  el.innerHTML=h;
+}
+function section(title,count,inner){ return `<div class="sect"><div class="sect-h">${esc(title)} <span class="c">${count}</span></div>${inner}</div>`; }
+function kv(pairs){ return `<div class="kv">`+pairs.map(([k,val])=>`<span class="k">${esc(k)}</span><span>${esc(val||'—')}</span>`).join('')+`</div>`; }
+function tgl(id){ $(id).classList.toggle('open'); }
+function lineTable(lc){
+  if(!lc||!lc.applicable) return (lc&&lc.summary)?`<div class="dnote"><b>Line items</b> — ${esc(lc.summary)}</div>`:'';
+  const rows=(lc.pairs||[]).map(p=>`<tr><td>${esc(p.invoice_line||'—')}</td><td>${esc(p.po_line||'—')}</td><td class="num">${esc(p.invoice_rate||'—')}${p.po_rate&&p.po_rate!==p.invoice_rate?' / '+esc(p.po_rate):''}</td><td class="num">${esc(p.quantity||'—')}</td><td>${p.rate_ok===true?'✓':(p.rate_ok===false?'✗ rate':(p.po_line?'·':'not on PO'))}</td></tr>`).join('');
+  return `<div class="dnote"><b>Line items</b> — ${esc(lc.summary)}</div>
+    <table class="ltab"><thead><tr><th>Invoice line</th><th>PO line</th><th>Rate</th><th>Qty</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+    ${(lc.flags||[]).length?`<div class="dflag">${lc.flags.map(esc).join('<br>')}</div>`:''}`;
+}
+function gstRow(gc){
+  if(!gc||!gc.applicable) return '';
+  const flags=[...(gc.hsn_flags||[]),...(gc.rate_flags||[])]; if(gc.tax_reconciles===false) flags.push('taxable + tax ≠ total');
+  return `<div class="dnote"><b>GST</b> — ${esc(gc.summary)}</div>${flags.length?`<div class="dflag">${flags.map(esc).join('<br>')}</div>`:''}`;
+}
+function memNote(m){
+  let s='';
+  if(m.cross_run) s+=`<div class="dflag">⚠ Already processed — ${esc(m.cross_run.reason)}</div>`;
+  if(m.cumulative) s+=`<div class="dflag">⚠ Cumulative over-billing on PO ${esc(m.cumulative.po_number)}: already billed ${esc(m.cumulative.prior_billed)} in a prior run; this batch adds ${esc(m.cumulative.this_batch)} vs a ${esc(m.cumulative.po_total)} PO (over ${esc(m.cumulative.over)}). Verdict unchanged.</div>`;
+  return s;
+}
+
+/* ---------- history / dashboard ---------- */
+function hist(){ try{return JSON.parse(localStorage.ap_batches||'[]');}catch(e){return [];} }
+function saveBatch(rep){ const h=hist(); h.unshift({t:new Date().toISOString(),rep}); localStorage.ap_batches=JSON.stringify(h.slice(0,50)); }
+function clearHist(){ if(confirm('Clear all saved batches?')){ localStorage.ap_batches='[]'; renderDash(); } }
+function needsReview(rep){ return (rep.matched||[]).filter(m=>m.verdict.status!=='MATCHED').length + rep.summary.po_missing + rep.summary.invoice_missing; }
+function renderDash(){
+  const h=hist();
+  const tot=h.reduce((a,b)=>({m:a.m+(b.rep.matched||[]).filter(x=>x.verdict.status==='MATCHED').length,d:a.d+b.rep.summary.documents,r:a.r+needsReview(b.rep)}),{m:0,d:0,r:0});
+  $('dash').innerHTML=`
+    <div class="tiles" style="grid-template-columns:repeat(4,1fr);margin-bottom:8px">
+      <div class="tile b-brand"><div class="n num">${h.length}</div><div class="l">Batches</div></div>
+      <div class="tile"><div class="n num">${tot.d}</div><div class="l">Documents</div></div>
+      <div class="tile b-green"><div class="n num">${tot.m}</div><div class="l">Matched</div></div>
+      <div class="tile b-amber"><div class="n num">${tot.r}</div><div class="l">Needed review</div></div>
+    </div>
+    ${h.length?`<div class="rhead"><h2>Past batches</h2><button class="btn ghost sm" onclick="clearHist()">Clear history</button></div>
+    <div class="card"><table><thead><tr><th>When</th><th>Documents</th><th>Matched</th><th>Needs review</th><th>Missing</th></tr></thead><tbody>
+    ${h.map((b,i)=>{const s=b.rep.summary;const cm=(b.rep.matched||[]).filter(x=>x.verdict.status==='MATCHED').length;
+      return `<tr onclick="reopen(${i})"><td>${new Date(b.t).toLocaleString()}</td><td class="num">${s.documents}</td>
+        <td class="num">${cm}</td><td class="num">${(b.rep.matched||[]).length-cm}</td><td class="num">${s.po_missing+s.invoice_missing+s.unreadable}</td></tr>`;}).join('')}
+    </tbody></table></div>`
+    :`<div class="card"><div class="empty"><div class="eic">${IC_DOC}</div>No batches yet — reconcile one on the Reconcile tab.</div></div>`}`;
+}
+function reopen(i){ const rep=hist()[i].rep; nav('reconcile'); $('stepper').classList.add('hide'); renderResults(rep); $('results').scrollIntoView({behavior:'smooth'}); }
+
+/* ---------- memory (cross-run ledger) ---------- */
+function mem(){ try{return JSON.parse(localStorage.ap_memory||'[]');}catch(e){return [];} }
+function money(c){ if(c==null) return '—'; const neg=c<0,a=Math.abs(c); return (neg?'-$':'$')+String(Math.floor(a/100)).replace(/\B(?=(\d{3})+(?!\d))/g,',')+'.'+String(a%100).padStart(2,'0'); }
+function renderMemory(){
+  const rows=mem();
+  $('memview').innerHTML=`
+    <div class="tiles" style="grid-template-columns:repeat(3,1fr);margin-bottom:8px">
+      <div class="tile b-brand"><div class="n num">${rows.length}</div><div class="l">Invoices in memory</div></div>
+      <div class="tile"><div class="n num">${new Set(rows.map(r=>r.po_number).filter(Boolean)).size}</div><div class="l">POs seen</div></div>
+      <div class="tile"><div class="n num">${new Set(rows.map(r=>(r.vendor||'').toLowerCase()).filter(Boolean)).size}</div><div class="l">Vendors</div></div>
+    </div>
+    ${rows.length?`<div class="rhead"><h2>Processed-invoice ledger</h2><button class="btn ghost sm" onclick="clearMemory()">Clear memory</button></div>
+    <div class="card"><table><thead><tr><th>Vendor</th><th>Invoice #</th><th>PO #</th><th>Amount</th><th>Date</th><th>Recorded</th></tr></thead><tbody>
+    ${rows.slice().reverse().map(r=>`<tr><td>${esc(r.vendor||'—')}</td><td>${esc(r.invoice_number||'—')}</td><td>${esc(r.po_number||'—')}</td>
+      <td class="num">${esc(money(r.amount_cents))}</td><td>${esc(r.invoice_date||'—')}</td><td>${esc(r.run_at?new Date(r.run_at).toLocaleString():'—')}</td></tr>`).join('')}
+    </tbody></table></div>`
+    :`<div class="card"><div class="empty"><div class="eic">${IC_DOC}</div>Memory is empty — reconcile a batch and every invoice it reads is remembered here, so a re-submitted bill or a PO billed twice across uploads gets flagged automatically.</div></div>`}`;
+}
+async function clearMemory(){
+  const hook=$('hook').value.trim(); if(!hook){ nav('reconcile'); showErr('Set your webhook URL first.'); return; }
+  if(!confirm('Clear the processed-invoice memory on the server? This cannot be undone.')) return;
+  const dummy={filename:'reset.png',content_type:'image/png',content_base64:'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='};
+  try{ const resp=await fetch(hook,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({reset_memory:true,files:[dummy]})});
+    const rep=await resp.json(); localStorage.ap_memory=JSON.stringify(rep.memory||[]); renderMemory();
+  }catch(e){ alert('Reset failed: '+e.message); }
+}
+
+/* ---------- helpers ---------- */
+function toB64(f){ return new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(String(r.result).split(',')[1]);r.onerror=rej;r.readAsDataURL(f);}); }
+function fmtSize(b){ return b<1024?b+' B':b<1048576?(b/1024).toFixed(0)+' KB':(b/1048576).toFixed(1)+' MB'; }
+function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+/* ---------- empty state ---------- */
+$('results').innerHTML=`<div class="card" style="margin-top:20px"><div class="empty">
+  <div class="eic"><svg class="i" viewBox="0 0 24 24" style="width:22px;height:22px"><path d="M4 7h16M4 12h10M4 17h7"/><path d="M15 15l2 2 4-4"/></svg></div>
+  <div style="font-weight:600;color:var(--ink)">Upload your invoices and purchase orders to begin</div>
+  <div style="margin-top:4px">You'll get the matched pairs, plus any invoice with no PO and any PO with no invoice — each labelled with its file name.</div>
+</div></div>`;
+</script>
+</body>
+</html>

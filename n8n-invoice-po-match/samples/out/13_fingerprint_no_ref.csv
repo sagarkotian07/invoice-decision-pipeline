@@ -1,0 +1,5 @@
+invoice_number,invoice_date,vendor_name,vendor_gstin,invoice_total,matched_po_numbers,po_total_sum,result,vendor_match,total_match,dates_fy,po_num_consistent,date_order,match_basis,confidence,flags,reason
+INV-1013,2025-06-10,,29AABCS1429B1ZX,11800,PO2279,11800,Match,agrees,agrees,agrees,unverified,agrees,GSTIN + total,medium,,
+
+invoice_number,line_no,description,hsn_sac,quantity,unit,rate,gst_rate,amount,paired_po_line,po_qty,po_unit_price,line_match,rate_match,qty_flag,hsn_valid,gst_correct
+INV-1013,1,CPVC Pipe,3917,100,,100,0.18,11800,PO2279#1,100,100,agrees,agrees,agrees,agrees,agrees

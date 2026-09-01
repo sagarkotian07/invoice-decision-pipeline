@@ -1,0 +1,3 @@
+pypdf>=3.9        # read the text layer out of born-digital PDFs
+reportlab>=4.0    # generate the sample invoice PDFs
+Pillow>=9.0       # render the "scanned image" sample (image-only PDF)

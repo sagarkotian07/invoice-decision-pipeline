@@ -1,0 +1,6 @@
+{
+  "_comment": "Per-instance credential wiring for the target n8n instance. Holds only the n8n credential ID (not the API key — that lives encrypted in n8n). Used by build_workflow.js so `npm run build` keeps the Claude node wired to the Header Auth credential. Safe to delete for a portable ($env) build.",
+  "CLAUDE_CRED_ID": "tEMWHtk82W3I4c3q",
+  "CLAUDE_CRED_TYPE": "httpHeaderAuth",
+  "CLAUDE_CRED_NAME": "Header Auth account 3"
+}

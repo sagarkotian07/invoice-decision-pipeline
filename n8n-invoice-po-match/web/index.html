@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Invoice ↔ PO — two-way match</title>
+<style>
+  :root { --bg:#0f1420; --panel:#171f2e; --line:#26324a; --ink:#e6ecf5; --mut:#8ea0bd;
+          --ok:#2ecc71; --bad:#e74c3c; --warn:#f39c12; --unv:#7f8ca3; --accent:#4c8dff; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:14px/1.5 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+         background:var(--bg); color:var(--ink); }
+  header { padding:20px 28px; border-bottom:1px solid var(--line); }
+  h1 { margin:0; font-size:18px; } .sub { color:var(--mut); font-size:13px; margin-top:4px; }
+  main { max-width:1040px; margin:0 auto; padding:24px 28px 60px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px;
+          padding:18px 20px; margin-bottom:18px; }
+  label { display:block; color:var(--mut); font-size:12px; margin-bottom:6px; text-transform:uppercase; letter-spacing:.04em; }
+  input[type=text], select, textarea { width:100%; background:#0d1523; border:1px solid var(--line);
+          color:var(--ink); border-radius:8px; padding:10px 12px; font:inherit; }
+  textarea { min-height:120px; font-family:ui-monospace,Menlo,monospace; font-size:12px; }
+  .row { display:flex; gap:14px; flex-wrap:wrap; } .row > div { flex:1; min-width:220px; }
+  .tabs { display:flex; gap:8px; margin-bottom:14px; }
+  .tab { padding:8px 14px; border:1px solid var(--line); border-radius:8px; cursor:pointer; color:var(--mut); }
+  .tab.active { color:var(--ink); border-color:var(--accent); background:#12203c; }
+  button.go { background:var(--accent); color:#fff; border:0; border-radius:8px; padding:11px 20px;
+          font-weight:600; cursor:pointer; margin-top:12px; }
+  button.ghost { background:transparent; color:var(--mut); border:1px solid var(--line);
+          border-radius:8px; padding:9px 14px; cursor:pointer; }
+  .hidden { display:none; }
+  .badge { display:inline-block; padding:5px 12px; border-radius:20px; font-weight:700; font-size:13px; }
+  .badge.match { background:rgba(46,204,113,.15); color:var(--ok); border:1px solid var(--ok); }
+  .badge.nomatch { background:rgba(231,76,60,.15); color:var(--bad); border:1px solid var(--bad); }
+  .checks { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:8px; margin:14px 0; }
+  .chk { background:#0d1523; border:1px solid var(--line); border-radius:8px; padding:8px 10px; }
+  .chk .k { color:var(--mut); font-size:11px; text-transform:uppercase; }
+  .chk .v { font-weight:700; }
+  .v.agrees { color:var(--ok); } .v.fails { color:var(--bad); } .v.unverified { color:var(--unv); }
+  .flags li { color:var(--warn); }
+  table { width:100%; border-collapse:collapse; font-size:12.5px; margin-top:10px; }
+  th, td { text-align:left; padding:7px 8px; border-bottom:1px solid var(--line); }
+  th { color:var(--mut); font-weight:600; }
+  .pill { padding:2px 7px; border-radius:6px; font-size:11px; }
+  .pill.agrees{background:rgba(46,204,113,.15);color:var(--ok);}
+  .pill.fails{background:rgba(231,76,60,.15);color:var(--bad);}
+  .pill.unverified{background:rgba(127,140,163,.15);color:var(--unv);}
+  .muted { color:var(--mut); } .err { color:var(--bad); } code { color:#9ecbff; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Invoice ↔ PO — two-way match <span class="muted">(GST rules)</span></h1>
+  <div class="sub">Upload an invoice + PO (or run a sample). The n8n workflow parses, matches, and returns a CSV for Excel.</div>
+</header>
+<main>
+  <div class="card">
+    <label>n8n webhook URL</label>
+    <input id="url" type="text" placeholder="https://<your-n8n>/webhook/invoice-po-match" />
+    <div class="sub" style="margin-top:6px">Saved locally in your browser. Use the <b>production</b> URL (or the test URL while the workflow editor is open).</div>
+  </div>
+
+  <div class="card">
+    <div class="tabs">
+      <div class="tab active" data-tab="sample">Run a sample (no OCR)</div>
+      <div class="tab" data-tab="upload">Upload PDFs</div>
+    </div>
+
+    <div id="pane-sample">
+      <div class="row">
+        <div>
+          <label>Sample scenario</label>
+          <select id="scenario"></select>
+        </div>
+      </div>
+      <label style="margin-top:12px">Payload (editable — this is the canonical JSON sent to n8n)</label>
+      <textarea id="payload"></textarea>
+      <button class="go" id="runSample">Run match</button>
+    </div>
+
+    <div id="pane-upload" class="hidden">
+      <div class="row">
+        <div><label>Invoice (PDF)</label><input id="fInvoice" type="file" accept="application/pdf" /></div>
+        <div><label>Purchase order (PDF / CSV)</label><input id="fPo" type="file" accept="application/pdf,.csv" /></div>
+      </div>
+      <div class="sub" style="margin-top:8px">Free — n8n extracts the PDF text and parses it (no OCR key needed for text-layer PDFs). Sends <code>mode=upload</code> + the two files.</div>
+      <button class="go" id="runUpload">Parse &amp; match</button>
+    </div>
+  </div>
+
+  <div id="result" class="card hidden"></div>
+</main>
+
+<script>
+// ---- a few representative sample payloads (canonical schema) --------------- //
+const V = "29AABCS1429B1ZX", VN = "Sri Lakshmi Traders";
+const line = (d,h,q,r,g,a)=>({line_no:1,description:d,hsn_sac:h,quantity:q,unit:"Nos",rate:r,gst_rate:g,amount:a});
+const SAMPLES = {
+  "Happy path — clean Match": {
+    invoice:{invoice_number:"INV-1001",invoice_date:"2025-06-10",vendor_name:VN,vendor_gstin:V,
+      references:[{value:"PO2279",kind:"buyer_pr_po"}],taxable_total:10000,tax_total:1800,total:11800,
+      lines:[line("CPVC Pipe 1 inch","3917",100,100,0.18,11800)]},
+    pos:[{po_number:"PO2279",pr_number:"PR2390",vendor_name:VN,vendor_gstin:V,requisition_date:"2025-06-01",
+      total:11800,po_itemized:true,lines:[{line_no:1,description:"CPVC Pipe 1 inch",quantity:100,unit:"Nos",unit_price:100,amount:10000}]}]},
+  "Vendor GSTIN mismatch — No match": {
+    invoice:{invoice_number:"INV-1002",invoice_date:"2025-06-10",vendor_gstin:V,
+      references:[{value:"PO2279",kind:"buyer_pr_po"}],total:11800,lines:[line("CPVC Pipe","3917",100,100,0.18,11800)]},
+    pos:[{po_number:"PO2279",vendor_gstin:"29ZZZZZ9999Z9Z9",requisition_date:"2025-06-01",total:11800,po_itemized:true,
+      lines:[{line_no:1,description:"CPVC Pipe",quantity:100,unit_price:100}]}]},
+  "Over-billing (billed > ordered) — Match + flag": {
+    invoice:{invoice_number:"INV-1005",invoice_date:"2025-06-10",vendor_gstin:V,
+      references:[{value:"PO2279",kind:"buyer_pr_po"}],total:11800,lines:[line("CPVC Pipe","3917",120,100,0.18,11800)]},
+    pos:[{po_number:"PO2279",vendor_gstin:V,requisition_date:"2025-06-01",total:11800,po_itemized:true,
+      lines:[{line_no:1,description:"CPVC Pipe",quantity:100,unit_price:100}]}]},
+  "Invoice spans two POs — Match + flag": {
+    invoice:{invoice_number:"INV-1006",invoice_date:"2025-07-01",vendor_gstin:V,
+      references:[{value:"PO2279",kind:"buyer_pr_po"},{value:"PO2281",kind:"buyer_pr_po"}],total:20000,
+      lines:[{line_no:1,description:"PVC Valve",hsn_sac:"8481",quantity:10,rate:800,gst_rate:0.18,amount:8000},
+             {line_no:2,description:"Steel Fitting",hsn_sac:"7307",quantity:20,rate:600,gst_rate:0.18,amount:12000}]},
+    pos:[{po_number:"PO2279",vendor_gstin:V,requisition_date:"2025-06-25",total:8000,po_itemized:true,lines:[{line_no:1,description:"PVC Valve",quantity:10,unit_price:800}]},
+         {po_number:"PO2281",vendor_gstin:V,requisition_date:"2025-06-25",total:12000,po_itemized:true,lines:[{line_no:1,description:"Steel Fitting",quantity:20,unit_price:600}]}]},
+  "Outside FY window — No match": {
+    invoice:{invoice_number:"INV-1007",invoice_date:"2024-12-01",vendor_gstin:V,
+      references:[{value:"PO2279",kind:"buyer_pr_po"}],total:11800,lines:[line("CPVC Pipe","3917",100,100,0.18,11800)]},
+    pos:[{po_number:"PO2279",vendor_gstin:V,requisition_date:"2025-06-01",total:11800,po_itemized:true,lines:[{line_no:1,description:"CPVC Pipe",quantity:100,unit_price:100}]}]},
+  "Bad HSN + wrong GST% — Match + flags": {
+    invoice:{invoice_number:"INV-1010",invoice_date:"2025-06-10",vendor_gstin:V,
+      references:[{value:"PO2279",kind:"buyer_pr_po"}],total:11800,
+      lines:[{line_no:1,description:"Mystery item",hsn_sac:"12",quantity:50,rate:100,gst_rate:0.18,amount:5900},
+             {line_no:2,description:"CPVC Pipe",hsn_sac:"3917",quantity:50,rate:100,gst_rate:0.12,amount:5900}]},
+    pos:[{po_number:"PO2279",vendor_gstin:V,requisition_date:"2025-06-01",total:11800,po_itemized:true,
+      lines:[{line_no:1,description:"Mystery item",quantity:50,unit_price:100},{line_no:2,description:"CPVC Pipe",quantity:50,unit_price:100}]}]},
+};
+
+// ---- UI wiring ------------------------------------------------------------- //
+const $ = (s)=>document.querySelector(s);
+const PROD_URL = ""; // set your own n8n webhook: https://<your-n8n-host>/webhook/invoice-po-match
+const url = $("#url"); url.value = localStorage.getItem("n8nUrl") || PROD_URL;
+url.addEventListener("input", ()=>localStorage.setItem("n8nUrl", url.value.trim()));
+
+const sel = $("#scenario"), pay = $("#payload");
+Object.keys(SAMPLES).forEach(k=>{ const o=document.createElement("option"); o.textContent=k; sel.appendChild(o); });
+function loadSample(){ pay.value = JSON.stringify(SAMPLES[sel.value], null, 2); }
+sel.addEventListener("change", loadSample); loadSample();
+
+document.querySelectorAll(".tab").forEach(t=>t.addEventListener("click",()=>{
+  document.querySelectorAll(".tab").forEach(x=>x.classList.remove("active"));
+  t.classList.add("active");
+  const up = t.dataset.tab==="upload";
+  $("#pane-upload").classList.toggle("hidden",!up);
+  $("#pane-sample").classList.toggle("hidden",up);
+}));
+
+function endpoint(){ const u=url.value.trim(); if(!u){ throw new Error("Set the n8n webhook URL first."); } return u; }
+
+async function post(fd){
+  const res = await fetch(endpoint(), { method:"POST", body:fd });
+  if(!res.ok) throw new Error("Webhook returned HTTP "+res.status+" — "+(await res.text()).slice(0,300));
+  return res.json();
+}
+
+$("#runSample").addEventListener("click", async ()=>{
+  try {
+    const payload = JSON.parse(pay.value);
+    const fd = new FormData(); fd.append("mode","sample"); fd.append("payload", JSON.stringify(payload));
+    render(await post(fd));
+  } catch(e){ showErr(e); }
+});
+$("#runUpload").addEventListener("click", async ()=>{
+  try {
+    const inv=$("#fInvoice").files[0], po=$("#fPo").files[0];
+    if(!inv||!po) throw new Error("Choose both an invoice and a PO file.");
+    const fd=new FormData(); fd.append("mode","upload"); fd.append("invoice",inv); fd.append("po",po);
+    render(await post(fd));
+  } catch(e){ showErr(e); }
+});
+
+// ---- render ---------------------------------------------------------------- //
+function showErr(e){ const r=$("#result"); r.classList.remove("hidden");
+  r.innerHTML = '<div class="err"><b>Error:</b> '+escapeHtml(e.message)+'</div>'; }
+
+function pill(v){ return '<span class="pill '+v.replace(/[^a-z]/g,'')+'">'+v+'</span>'; }
+function escapeHtml(s){ return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+function render(data){
+  const h = data.header || {}; const r=$("#result"); r.classList.remove("hidden");
+  const isMatch = data.result==="Match";
+  const badge = data.result
+    ? '<span class="badge '+(isMatch?'match':'nomatch')+'">'+data.result+'</span>'
+    : '<span class="badge nomatch">no invoice</span>';
+  const checks = ["vendor_match","total_match","dates_fy","po_num_consistent","date_order"]
+    .map(k=>'<div class="chk"><div class="k">'+k.replace(/_/g,' ')+'</div><div class="v '+h[k]+'">'+(h[k]||'—')+'</div></div>').join("");
+  const flagList = Array.isArray(h.flags) ? h.flags
+    : (h.flags ? String(h.flags).split(/\s*;\s*/).filter(Boolean) : []);
+  const flags = flagList.length
+    ? '<ul class="flags">'+flagList.map(f=>'<li>'+escapeHtml(f)+'</li>').join("")+'</ul>' : '<div class="muted">No flags.</div>';
+  const lines = (data.lines||[]).map(l=>'<tr>'+
+    ['line_no','description','hsn_sac','quantity','rate','gst_rate','paired_po_line'].map(k=>'<td>'+escapeHtml(l[k]??'')+'</td>').join('')+
+    '<td>'+pill(l.line_match||'unverified')+'</td><td>'+pill(l.rate_match||'unverified')+'</td>'+
+    '<td>'+pill(l.qty_flag||'unverified')+'</td><td>'+pill(l.hsn_valid||'unverified')+'</td><td>'+pill(l.gst_correct||'unverified')+'</td></tr>').join("");
+
+  r.innerHTML =
+    '<div style="display:flex;justify-content:space-between;align-items:center">'+
+      '<div>'+badge+' &nbsp; <b>'+escapeHtml(h.invoice_number||'')+'</b> '+
+      '<span class="muted">→ '+escapeHtml(h.matched_po_numbers||'no PO')+' · basis: '+escapeHtml(h.match_basis||'')+' ('+escapeHtml(h.confidence||'')+')</span></div>'+
+      '<button class="ghost" id="dl">⬇ Download CSV</button></div>'+
+    (h.reason?'<div class="err" style="margin-top:10px">Reason: '+escapeHtml(h.reason)+'</div>':'')+
+    '<div class="checks">'+checks+'</div>'+
+    '<label>Flags</label>'+flags+
+    '<label style="margin-top:14px">Line detail</label>'+
+    '<table><thead><tr><th>#</th><th>Description</th><th>HSN</th><th>Qty</th><th>Rate</th><th>GST</th><th>PO line</th>'+
+    '<th>Line</th><th>Rate</th><th>Qty</th><th>HSN</th><th>GST%</th></tr></thead><tbody>'+lines+'</tbody></table>';
+
+  $("#dl").addEventListener("click", ()=>{
+    const csv = data.csv_base64 ? atob(data.csv_base64) : "";
+    const blob = new Blob([csv], {type:"text/csv"});
+    const a=document.createElement("a"); a.href=URL.createObjectURL(blob);
+    a.download = data.filename || "match.csv"; a.click();
+  });
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,71 @@
+{
+  "_comment": "The 'procurement system': approved vendor master + open purchase orders. In a real deployment this would be an ERP query (NetSuite/SAP/Coupa); here it's a flat file so the demo is self-contained and inspectable.",
+  "vendors": [
+    {
+      "vendor_id": "V001",
+      "name": "Acme Industrial Supplies",
+      "aliases": ["Acme Industrial", "ACME IND. SUPPLIES", "Acme Ind Supplies Inc"],
+      "approved": true,
+      "payment_terms": "NET30"
+    },
+    {
+      "vendor_id": "V002",
+      "name": "Northwind Traders",
+      "aliases": ["Northwind Trading Co.", "Northwind"],
+      "approved": true,
+      "payment_terms": "NET45"
+    },
+    {
+      "vendor_id": "V003",
+      "name": "Globex Corporation",
+      "aliases": ["Globex Corp", "Globex"],
+      "approved": true,
+      "payment_terms": "NET30"
+    },
+    {
+      "vendor_id": "V004",
+      "name": "Initech Software",
+      "aliases": ["Initech, Inc.", "Initech Inc", "Initech"],
+      "approved": true,
+      "payment_terms": "NET15"
+    }
+  ],
+  "purchase_orders": [
+    {
+      "po_number": "PO-1001",
+      "vendor_id": "V001",
+      "total_amount": "12500.00",
+      "currency": "USD",
+      "status": "open",
+      "allow_partial": false,
+      "description": "Q3 warehouse racking + fasteners"
+    },
+    {
+      "po_number": "PO-1002",
+      "vendor_id": "V002",
+      "total_amount": "8000.00",
+      "currency": "USD",
+      "status": "open",
+      "allow_partial": false,
+      "description": "Office furniture — reception refit"
+    },
+    {
+      "po_number": "PO-1003",
+      "vendor_id": "V003",
+      "total_amount": "50000.00",
+      "currency": "USD",
+      "status": "open",
+      "allow_partial": true,
+      "description": "Data-center hardware, phased delivery (partial billing allowed)"
+    },
+    {
+      "po_number": "PO-1004",
+      "vendor_id": "V004",
+      "total_amount": "6750.00",
+      "currency": "USD",
+      "status": "open",
+      "allow_partial": false,
+      "description": "Annual ERP license renewal"
+    }
+  ]
+}

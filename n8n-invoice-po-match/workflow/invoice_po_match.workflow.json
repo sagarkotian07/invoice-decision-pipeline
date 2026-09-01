@@ -1,0 +1,426 @@
+{
+  "name": "Invoice ↔ PO two-way match (GST, free parser)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "invoice-po-match",
+        "responseMode": "responseNode",
+        "options": {
+          "allowedOrigins": "*"
+        }
+      },
+      "id": "node-webhook",
+      "name": "Webhook (upload)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        160,
+        420
+      ],
+      "webhookId": "invoice-po-match"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "c-sample",
+              "leftValue": "={{ $json.body.mode }}",
+              "rightValue": "sample",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-route",
+      "name": "Route (mode==sample?)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        400,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Sample / JSON-payload mode. index.html posts a form field \"payload\"\n// containing canonical {invoice, pos, opts}.\nconst body = ($input.first().json.body) || {};\nlet payload = body.payload;\nif (!payload) { throw new Error('No JSON payload. Send {payload:{...}} (sample), or upload PDFs.'); }\nif (typeof payload === 'string') payload = JSON.parse(payload);\nreturn [{ json: payload }];"
+      },
+      "id": "node-prepare",
+      "name": "Prepare payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        640,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// The webhook stores uploaded files under binary keys that vary by n8n version\n// (invoice/po, or file0/file1, or data/data1...). Normalise them to 'invoice' and\n// 'po' so the two Extract-from-File nodes have a stable field to read.\n// Strategy: filename hint first (…invoice…, …po/purchase/order…), else upload order\n// (the front-end always sends the invoice first, the PO second).\nconst item = $input.first();\nconst bin = item.binary || {};\nconst keys = Object.keys(bin);\nif (keys.length < 2) {\n  throw new Error('Expected 2 uploaded files (invoice + PO). Binary keys present: [' + keys.join(', ') + ']');\n}\nlet invKey, poKey;\nfor (const k of keys) {\n  const n = String(bin[k].fileName || '').toLowerCase();\n  if (!invKey && /inv/.test(n)) invKey = k;\n  else if (!poKey && /(purchase|order|\\bpo\\b|_po|po[-_ ])/.test(n)) poKey = k;\n}\ninvKey = invKey || keys[0];\npoKey = poKey || keys.find((k) => k !== invKey) || keys[1];\nreturn [{ json: item.json, binary: { invoice: bin[invKey], po: bin[poKey] } }];"
+      },
+      "id": "node-prep",
+      "name": "Prep uploaded files",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        640,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "pdf",
+        "binaryPropertyName": "invoice",
+        "options": {}
+      },
+      "id": "node-xinv",
+      "name": "Extract invoice text",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        860,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "pdf",
+        "binaryPropertyName": "po",
+        "options": {}
+      },
+      "id": "node-xpo",
+      "name": "Extract PO text",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        860,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "id": "node-merge",
+      "name": "Merge",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        1100,
+        520
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "'use strict';\n/*\n * parse_text.js — FREE, key-less parser. Turns the plain text of an invoice / PO\n * (from pypdf locally, or n8n's built-in \"Extract from File\" node) into the\n * canonical schema, using label regexes for the header fields and a header-driven\n * column mapper for line items. No OCR service, no API key, no cost.\n *\n * Works on born-digital (text-layer) PDFs. Scanned images have no text layer — for\n * those you'd add real OCR later (the Nanonets branch is still in the workflow).\n *\n * Portable: runs in Node (require) and in an n8n Code node.\n */\n\nconst GSTIN_RE = /\\b\\d{2}[A-Z]{5}\\d{4}[A-Z][0-9A-Z]Z[0-9A-Z]\\b/;\n\nconst toNum = (s) => {\n  if (s == null || s === '') return null;\n  // extract the FIRST number token, so trailing text (\"11,800.00 (incl. GST)\") is ignored\n  const m = String(s).match(/-?\\d[\\d,]*\\.?\\d*/);\n  if (!m) return null;\n  const n = Number(m[0].replace(/,/g, ''));\n  return Number.isFinite(n) ? n : null;\n};\n\n// grab a specific tax amount (CGST/SGST/IGST), even when several share one line\n// (\"CGST 9%: 900.00    SGST 9%: 900.00\") — take the last decimal number in this\n// label's own segment, after dropping the rate% and any following tax label.\nfunction grabTax(text, label) {\n  const m = text.match(new RegExp(label + '[^\\\\n]*', 'i'));\n  if (!m) return null;\n  let seg = m[0].replace(new RegExp('^' + label, 'i'), '')\n    .replace(/\\b(cgst|sgst|igst)\\b.*/i, '');\n  const nums = seg.match(/\\d[\\d,]*\\.\\d{2}/g) || seg.match(/\\d[\\d,]*/g) || [];\n  return nums.length ? toNum(nums[nums.length - 1]) : null;\n}\n\n// dates: DD-MM-YYYY, DD/MM/YYYY, YYYY-MM-DD, \"10 Jun 2025\" → ISO\nfunction toIso(s) {\n  if (!s) return '';\n  s = s.trim();\n  let m = s.match(/^(\\d{4})-(\\d{2})-(\\d{2})$/);\n  if (m) return `${m[1]}-${m[2]}-${m[3]}`;\n  m = s.match(/^(\\d{1,2})[-/](\\d{1,2})[-/](\\d{4})$/);\n  if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;\n  const MON = { jan: '01', feb: '02', mar: '03', apr: '04', may: '05', jun: '06',\n    jul: '07', aug: '08', sep: '09', oct: '10', nov: '11', dec: '12' };\n  m = s.match(/^(\\d{1,2})\\s+([A-Za-z]{3,})\\s+(\\d{4})$/);\n  if (m && MON[m[2].slice(0, 3).toLowerCase()]) {\n    return `${m[3]}-${MON[m[2].slice(0, 3).toLowerCase()]}-${m[1].padStart(2, '0')}`;\n  }\n  return s;\n}\n\nconst lines = (t) => String(t || '').split(/\\r?\\n/).map((l) => l.trim()).filter(Boolean);\n\n// Capture a field value after its label, stopping at the NEXT label (a \"Word:\"\n// pattern) or a 2+ space gap or end of line. Works whether the PDF extractor keeps\n// wide gaps (pypdf) or collapses them to single spaces (n8n's Extract from File):\n//   \"Invoice No: INV-1001 Invoice Date: 10-06-2025\" → invoice no = \"INV-1001\".\nconst STOP = '(?=\\\\s{2,}|\\\\s[A-Za-z][A-Za-z ./]{1,22}:|$)';\nfunction fieldValue(text, labels) {\n  for (const lab of labels) {\n    const re = new RegExp(lab + '\\\\s*[:#]?\\\\s*([^\\\\n]*?)' + STOP, 'im');\n    const m = text.match(re);\n    if (m && m[1].trim()) return m[1].trim();\n  }\n  return '';\n}\n// For ids (invoice/PO/PR numbers): the value is a single token containing a digit.\nfunction idValue(text, labels) {\n  for (const lab of labels) {\n    const re = new RegExp(lab + '\\\\s*[:#]?\\\\s*([A-Za-z0-9][A-Za-z0-9/_-]*)', 'im');\n    const m = text.match(re);\n    if (m && m[1] && /\\d/.test(m[1])) return m[1].trim();\n  }\n  return '';\n}\n\n// Detect the table columns from the header by KEYWORD POSITION (handles multi-word\n// headers like \"Unit Price\" and single-spaced text), returning them left-to-right.\nconst COL_SCAN = [\n  [/\\bsl\\b|s\\.?\\s*no\\b|^#/i, 'sl'],\n  [/description|item|particular/i, 'description'],\n  [/hsn|sac/i, 'hsn_sac'],\n  [/qty|quantity/i, 'quantity'],\n  [/unit\\s*price|\\brate\\b|\\bprice\\b/i, 'unit_price'],\n  [/gst|tax/i, 'gst_rate'],\n  [/amount|value/i, 'amount'],\n];\nfunction headerColumns(headerLine) {\n  const found = [];\n  for (const [re, key] of COL_SCAN) {\n    const m = headerLine.match(re);\n    if (m && m.index != null) found.push({ key, idx: m.index });\n  }\n  const seen = new Set();\n  return found.sort((a, b) => a.idx - b.idx)\n    .filter((f) => !seen.has(f.key) && seen.add(f.key)).map((f) => f.key);\n}\nfunction assignCol(rec, key, val) {\n  if (!key || key === 'sl' || val == null) return;\n  if (key === 'description') rec.description = (rec.description ? rec.description + ' ' : '') + val;\n  else if (key === 'hsn_sac') rec.hsn_sac = String(val).replace(/\\s/g, '');\n  else if (key === 'quantity') rec.quantity = toNum(val);\n  else if (key === 'unit_price') { rec.unit_price = toNum(val); rec.rate = toNum(val); }\n  else if (key === 'gst_rate') { const n = toNum(val); rec.gst_rate = n == null ? null : (n > 1 ? n / 100 : n); }\n  else if (key === 'amount') rec.amount = toNum(val);\n}\n\nfunction parseLineItems(ls) {\n  const hIdx = ls.findIndex((l) => /description|item|particular/i.test(l)\n    && /(amount|qty|quantity|rate|value)/i.test(l));\n  if (hIdx < 0) return [];\n  const cols = headerColumns(ls[hIdx]);\n  const descIdx = cols.indexOf('description');\n  if (descIdx < 0) return [];\n  const pre = cols.slice(0, descIdx);        // columns before description (e.g. Sl)\n  const post = cols.slice(descIdx + 1);      // columns after description (numbers)\n  const items = [];\n  let lineNo = 1;\n  for (let i = hIdx + 1; i < ls.length; i++) {\n    const l = ls[i];\n    if (/taxable|grand\\s*total|po\\s*total|sub\\s*total|^total\\b|cgst|sgst|igst|amount\\s*in\\s*words|payment|terms|remit/i.test(l)) break;\n    const toks = l.split(/\\s+/).filter(Boolean);\n    if (toks.length < pre.length + post.length + 1) continue;   // not enough cells → not a data row\n    const rec = { line_no: lineNo, description: '', hsn_sac: '', quantity: null,\n      unit: '', rate: null, unit_price: null, gst_rate: null, amount: null };\n    pre.forEach((k, idx) => assignCol(rec, k, toks[idx]));                    // leading cols\n    post.forEach((k, idx) => assignCol(rec, k, toks[toks.length - post.length + idx])); // trailing cols\n    rec.description = toks.slice(pre.length, toks.length - post.length).join(' '); // the middle\n    if (rec.description || rec.amount != null) { items.push(rec); lineNo++; }\n  }\n  return items;\n}\n\nfunction allGstins(ls) {\n  const out = [];\n  ls.forEach((l) => { const m = l.match(GSTIN_RE); if (m) out.push({ gstin: m[0], line: l }); });\n  return out;\n}\n\nfunction parseInvoice(text) {\n  const ls = lines(text);\n  const gs = allGstins(ls);\n  const buyer = gs.find((g) => /bill\\s*to|buyer|consignee|ship\\s*to/i.test(g.line));\n  const seller = gs.find((g) => g !== buyer);\n  // vendor name = first non-generic header line\n  const vname = (ls.find((l) => !/^(tax\\s*invoice|invoice|gstin|bill\\s*to)/i.test(l)\n    && /[A-Za-z]{3,}/.test(l)) || '').replace(/\\s{2,}.*$/, '');\n  const poref = fieldValue(text, ['buyer\\\\s*po\\\\s*ref', 'po\\\\s*ref', 'p\\\\.?o\\\\.?\\\\s*no', 'purchase\\\\s*order', 'po']);\n  const cgst = grabTax(text, 'cgst');\n  const sgst = grabTax(text, 'sgst');\n  const igst = grabTax(text, 'igst');\n  let tax = toNum(fieldValue(text, ['tax\\\\s*amount', 'total\\\\s*tax', 'gst\\\\s*amount']));\n  if (tax == null && (cgst != null || sgst != null || igst != null)) tax = (cgst || 0) + (sgst || 0) + (igst || 0);\n  const poval = poref.match(/(PO|PR)?[-\\s]?\\d+/i);\n  return {\n    invoice_number: idValue(text, ['invoice\\\\s*no', 'invoice\\\\s*number', 'bill\\\\s*no', 'inv\\\\s*no']),\n    invoice_date: toIso(fieldValue(text, ['invoice\\\\s*date', 'date\\\\s*of\\\\s*issue', 'dated', 'date'])),\n    vendor_name: vname,\n    vendor_gstin: seller ? seller.gstin : '',\n    buyer_gstin: buyer ? buyer.gstin : '',\n    references: poval ? [{ value: poval[0].replace(/\\s/g, ''), kind: 'buyer_pr_po', handwritten: false }] : [],\n    taxable_total: toNum(fieldValue(text, ['taxable\\\\s*value', 'taxable', 'sub\\\\s*total', 'net\\\\s*amount'])),\n    tax_total: tax,\n    total: toNum(fieldValue(text, ['grand\\\\s*total', 'total\\\\s*due', 'amount\\\\s*payable', 'invoice\\\\s*total', 'total'])),\n    lines: parseLineItems(ls),\n  };\n}\n\nfunction parsePo(text) {\n  const ls = lines(text);\n  const gs = allGstins(ls);\n  const vendor = gs.find((g) => /vendor|supplier/i.test(g.line));\n  const buyer = gs.find((g) => g !== vendor);\n  const vname = fieldValue(text, ['vendor', 'supplier']) || '';\n  return {\n    po_number: idValue(text, ['po\\\\s*number', 'po\\\\s*no', 'purchase\\\\s*order\\\\s*no', 'purchase\\\\s*order']),\n    pr_number: idValue(text, ['pr\\\\s*number', 'pr\\\\s*no', 'requisition\\\\s*no']),\n    vendor_name: vname.replace(/\\s{2,}.*$/, ''),\n    vendor_gstin: vendor ? vendor.gstin : (gs[1] ? gs[1].gstin : ''),\n    buyer_gstin: buyer ? buyer.gstin : '',\n    requisition_date: toIso(fieldValue(text, ['requisition\\\\s*date', 'po\\\\s*date', 'order\\\\s*date', 'date'])),\n    total: toNum(fieldValue(text, ['po\\\\s*total', 'grand\\\\s*total', 'total'])),\n    lines: parseLineItems(ls),\n  };\n}\n\nfunction parseDoc(text, kind) { return kind === 'po' ? parsePo(text) : parseInvoice(text); }\n\n// ---- n8n Code-node entrypoint (safe no-op under Node) --------------------- //\nif (typeof $input !== 'undefined') {\n  // Expects two \"Extract from File\" nodes upstream named as below, each exposing\n  // the extracted text in json.text.\n  const invText = $('Extract invoice text').first().json.text;\n  const poText = $('Extract PO text').first().json.text;\n  return [{ json: { invoice: parseInvoice(invText), pos: [parsePo(poText)], opts: {} } }]; // eslint-disable-line\n}\n\nif (typeof module !== 'undefined' && module.exports) {\n  module.exports = { parseInvoice, parsePo, parseDoc };\n}\n"
+      },
+      "id": "node-parse",
+      "name": "Parse text → canonical",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        520
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "'use strict';\n/*\n * normalize.js — map raw parsed input (OCR output or mock JSON) to the canonical\n * schema that matcher.js expects. Tolerates the alternate field names OCR services\n * and different vendors emit (\"invoice_no\" vs \"invoice_number\", \"₹1,234.50\" vs a\n * number, \"line_items\" vs \"lines\"). Numbers are cleaned to plain floats; dates are\n * left as ISO strings (the OCR step should already have normalised them).\n *\n * Accepts a payload shaped as { invoice, pos|po, opts? } where invoice/po may use\n * loose field names, and returns { invoice, pos, opts } in canonical form.\n */\n\nconst toNum = (v) => {\n  if (v === null || v === undefined || v === '') return null;\n  if (typeof v === 'number') return v;\n  const s = String(v).replace(/[₹$€£,\\s]/g, '').replace(/[()]/g, '');\n  const n = Number(s);\n  return Number.isFinite(n) ? n : null;\n};\n\nconst pick = (obj, keys) => {\n  for (const k of keys) if (obj && obj[k] !== undefined && obj[k] !== null && obj[k] !== '') return obj[k];\n  return undefined;\n};\n\nfunction normRefs(raw) {\n  // Accept: array of {value,kind,handwritten} | array of strings | a single \"po_reference\"\n  if (!raw) return [];\n  const arr = Array.isArray(raw) ? raw : [raw];\n  return arr.map((r) =>\n    typeof r === 'string'\n      ? { value: r, kind: 'buyer_pr_po', handwritten: false }\n      : { value: r.value ?? r.ref ?? '', kind: r.kind || 'buyer_pr_po', handwritten: !!r.handwritten }\n  ).filter((r) => r.value);\n}\n\nfunction normLines(raw) {\n  const arr = raw || [];\n  return arr.map((l, i) => ({\n    line_no: l.line_no ?? i + 1,\n    description: pick(l, ['description', 'desc', 'item', 'particulars', 'name']) || '',\n    hsn_sac: pick(l, ['hsn_sac', 'hsn', 'sac', 'hsn_code']) || '',\n    quantity: toNum(pick(l, ['quantity', 'qty'])),\n    unit: pick(l, ['unit', 'uom']) || '',\n    rate: toNum(pick(l, ['rate', 'unit_price', 'price'])),\n    unit_price: toNum(pick(l, ['unit_price', 'rate', 'price'])),\n    gst_rate: toNum(pick(l, ['gst_rate', 'gst', 'tax_rate'])),\n    amount: toNum(pick(l, ['amount', 'line_total', 'total'])),\n  }));\n}\n\nfunction normInvoice(raw) {\n  if (!raw) return {};\n  return {\n    invoice_number: pick(raw, ['invoice_number', 'invoice_no', 'invoice', 'bill_no']) || '',\n    invoice_date: pick(raw, ['invoice_date', 'date', 'invoice_dt']) || '',\n    vendor_name: pick(raw, ['vendor_name', 'seller', 'supplier', 'vendor']) || '',\n    vendor_gstin: pick(raw, ['vendor_gstin', 'seller_gstin', 'gstin', 'supplier_gstin']) || '',\n    buyer_gstin: pick(raw, ['buyer_gstin', 'consignee_gstin']) || '',\n    references: normRefs(raw.references || raw.po_reference || raw.buyer_pr_po),\n    taxable_total: toNum(pick(raw, ['taxable_total', 'taxable', 'sub_total', 'subtotal'])),\n    tax_total: toNum(pick(raw, ['tax_total', 'gst', 'tax', 'gst_total'])),\n    total: toNum(pick(raw, ['total', 'grand_total', 'invoice_amount', 'amount_due'])),\n    lines: normLines(raw.lines || raw.line_items || raw.items),\n  };\n}\n\nfunction normPo(raw) {\n  if (!raw) return null;\n  const lines = normLines(raw.lines || raw.line_items || raw.items);\n  // po_itemized: >1 line, OR a single line with qty>1 AND a per-unit price\n  let itemized = raw.po_itemized;\n  if (itemized === undefined) {\n    if (lines.length > 1) itemized = true;\n    else if (lines.length === 1) itemized = (lines[0].quantity > 1 && lines[0].unit_price != null);\n    else itemized = false;\n  }\n  return {\n    po_number: pick(raw, ['po_number', 'po_no', 'po']) || '',\n    pr_number: pick(raw, ['pr_number', 'pr_no', 'pr']) || '',\n    vendor_name: pick(raw, ['vendor_name', 'supplier', 'vendor']) || '',\n    vendor_gstin: pick(raw, ['vendor_gstin', 'supplier_gstin', 'gstin']) || '',\n    buyer_gstin: pick(raw, ['buyer_gstin']) || '',\n    requisition_date: pick(raw, ['requisition_date', 'po_date', 'date']) || '',\n    scheduled_date: pick(raw, ['scheduled_date']) || '',\n    total: toNum(pick(raw, ['total', 'grand_total', 'po_total'])),\n    po_itemized: !!itemized,\n    lines,\n  };\n}\n\nfunction normalize(payload) {\n  const invoice = normInvoice(payload.invoice);\n  const posRaw = payload.pos || (payload.po ? [payload.po] : []);\n  const pos = posRaw.map(normPo).filter(Boolean);\n  return { invoice, pos, opts: payload.opts || {} };\n}\n\nif (typeof $input !== 'undefined') {\n  const out = $input.all().map((it) => ({ json: normalize(it.json) }));\n  return out;                                                   // eslint-disable-line\n}\nif (typeof module !== 'undefined' && module.exports) module.exports = { normalize, toNum };\n"
+      },
+      "id": "node-normalize",
+      "name": "Normalize",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1540,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "'use strict';\n/*\n * matcher.js — Two-way Invoice ↔ PO match (GST rules).\n *\n * A faithful, two-way-only reduction of the four-way purchase-match skill in\n * ../../purchase-four-way-match/references/check-rules.md. GRN, register and\n * bundle mechanics are dropped; the invoice is the anchor and we match it to one\n * or more POs.\n *\n * Design invariants carried over from the reference:\n *   - THREE STATES everywhere: 'agrees' | 'fails' | 'unverified'. Missing data is\n *     NEVER coerced to 0/false — it is 'unverified', and 'unverified' NEVER flips\n *     the verdict.\n *   - Only Tier-1 header checks (vendor / total / dates-in-FY) drive the verdict.\n *     Everything else (HSN, GST%, over-billing, rate variance, date order, line\n *     pairing) is a FLAG that is reported but never changes Match / No match.\n *   - An invoice may legitimately span several POs → we gather a LIST of matched\n *     POs and reconcile the invoice total against their SUM.\n *\n * Portable: runs unchanged in Node (require) and in an n8n Code node.\n */\n\n// --------------------------------------------------------------------------- //\n// Tolerances — verbatim from check-rules.md § \"Tolerances (one place)\"         //\n// --------------------------------------------------------------------------- //\nconst round2 = (x) => Math.round((Number(x) + Number.EPSILON) * 100) / 100;\nconst num = (x) => (x === null || x === undefined || x === '' ? null : Number(x));\n\nconst amountsEqual = (a, b) => Math.abs(a - b) <= Math.max(1.0, 0.005 * Math.abs(b)); // ₹1 or 0.5%\nconst ratesEqual = (a, b) => Math.abs(round2(a) - round2(b)) <= 0.01;\nconst pctEqual = (a, b) => Math.abs(a - b) <= 0.0001;                                  // 0.18 == 0.18\nconst qtyLe = (a, b) => a <= b + 1e-9;                                                 // directional\n\n// --------------------------------------------------------------------------- //\n// HSN/SAC → GST% master (bundled from the reference gst-hsn-rates.csv).         //\n// A caller may pass an override map via opts.rateTable.                         //\n// --------------------------------------------------------------------------- //\nconst DEFAULT_RATE_TABLE = {\n  '3808': 18, '8516': 18, '85161000': 18, '9405': 18, '996609': 18,\n  '3917': 18, '3925': 18, '8481': 18, '7307': 18, '3922': 18,\n  '9954': 18, '995469': 18, '9985': 18, '998533': 18, '9987': 18,\n  '99871': 18, '998311': 18, '9983': 18, '9401': 18, '9403': 18,\n  '9404': 18, '4418': 18, '8302': 18, '4819': 18, '9405XX': 18,\n  '6307': 12, '5208': 5,\n};\n\n// --------------------------------------------------------------------------- //\n// small helpers                                                                //\n// --------------------------------------------------------------------------- //\nconst normGstin = (g) => (g ? String(g).toUpperCase().replace(/\\s+/g, '') : '');\nconst gstinEqual = (a, b) => {\n  const x = normGstin(a), y = normGstin(b);\n  return x && y ? x === y : null; // null == \"can't tell\" (one missing)\n};\n\nconst normName = (s) =>\n  String(s || '')\n    .toLowerCase()\n    .replace(/[^a-z0-9 ]+/g, ' ')\n    .replace(/\\b(private|pvt|limited|ltd|llp|inc|co|company|and|the)\\b/g, ' ')\n    .replace(/\\s+/g, ' ')\n    .trim();\n\n// normalise a PO/PR number for comparison: \"PR 2390\" ~ \"PR2390\" ~ \"pr-2390\"\nconst normRef = (s) => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');\n\nconst inFY = (d, fyStart, fyEnd) => d >= fyStart && d <= fyEnd;\n\nconst SYNONYMS = [['elbow', 'bend']];\nconst STOP = new Set(['mm', 'inch', 'in', 'approx', 'approximately', 'set', 'sets',\n  'pcs', 'pc', 'nos', 'no', 'of', 'the', 'for', 'and', 'with', 'x', 'size', 'grade']);\nfunction normDesc(s) {\n  let t = String(s || '').toLowerCase().replace(/[^a-z0-9 ]+/g, ' ');\n  for (const [a, b] of SYNONYMS) t = t.replace(new RegExp('\\\\b' + b + '\\\\b', 'g'), a);\n  const toks = t.split(/\\s+/).filter((w) => w && !STOP.has(w));\n  return toks.join(' ').trim();\n}\nfunction sameProduct(a, b) {\n  const na = normDesc(a), nb = normDesc(b);\n  if (!na || !nb) return false;\n  if (na === nb) return true;\n  if (na.includes(nb) || nb.includes(na)) return true;\n  const A = new Set(na.split(' ')), B = new Set(nb.split(' '));\n  let inter = 0;\n  for (const w of A) if (B.has(w)) inter += 1;\n  const jac = inter / (A.size + B.size - inter);\n  return jac >= 0.6;\n}\n\n// --------------------------------------------------------------------------- //\n// 1. Match ladder (Hop 2) — gather ALL matching POs into matched_pos           //\n// --------------------------------------------------------------------------- //\nfunction buildLadder(invoice, pos) {\n  const refs = (invoice.references || []).filter((r) => r.kind === 'buyer_pr_po');\n  const refVals = refs.map((r) => normRef(r.value));\n  const handwritten = refs.some((r) => r.handwritten);\n\n  // Rung 1 — explicit PR/PO reference\n  const rung1 = pos.filter((po) =>\n    refVals.includes(normRef(po.po_number)) || refVals.includes(normRef(po.pr_number)));\n  if (rung1.length) {\n    return {\n      matched: rung1,\n      basis: handwritten ? 'PR/PO (handwritten, review)' : 'PR/PO number',\n      confidence: handwritten ? 'medium' : 'high',\n      rung: 1,\n    };\n  }\n\n  // Rung 2 — fingerprint: GSTIN + total\n  const rung2 = pos.filter((po) =>\n    gstinEqual(invoice.vendor_gstin, po.vendor_gstin) === true &&\n    invoice.total != null && po.total != null &&\n    amountsEqual(invoice.total, po.total));\n  if (rung2.length) {\n    return { matched: rung2, basis: 'GSTIN + total', confidence: 'medium', rung: 2 };\n  }\n\n  // Rung 3 — GSTIN matches but total off (tentative; total check will fail)\n  const rung3 = pos.filter((po) => gstinEqual(invoice.vendor_gstin, po.vendor_gstin) === true);\n  if (rung3.length) {\n    return { matched: rung3, basis: 'possible match (GSTIN only)', confidence: 'low', rung: 3 };\n  }\n\n  // Rung 4 — nothing ties (does NOT force No-match)\n  return { matched: [], basis: 'No PO found', confidence: 'none', rung: 4 };\n}\n\n// --------------------------------------------------------------------------- //\n// 2. Line pairing (Tier 4)                                                     //\n// --------------------------------------------------------------------------- //\nfunction pairLines(invLines, poLines) {\n  const paired = new Map();       // invoice line_no -> po line ref\n  const usedPo = new Set();\n\n  const poKey = (l) => (l.hsn_sac ? String(l.hsn_sac) : '') + '|' + normDesc(l.description);\n\n  // (1) exact key: identical normalised description OR exact HSN\n  for (const il of invLines) {\n    for (const pl of poLines) {\n      if (usedPo.has(pl._ref)) continue;\n      const exactHsn = il.hsn_sac && pl.hsn_sac && String(il.hsn_sac) === String(pl.hsn_sac);\n      if (normDesc(il.description) === normDesc(pl.description) || exactHsn) {\n        paired.set(il.line_no, pl); usedPo.add(pl._ref); break;\n      }\n    }\n  }\n  // (2) same-product judgment for the rest\n  for (const il of invLines) {\n    if (paired.has(il.line_no)) continue;\n    for (const pl of poLines) {\n      if (usedPo.has(pl._ref)) continue;\n      if (sameProduct(il.description, pl.description)) {\n        paired.set(il.line_no, pl); usedPo.add(pl._ref); break;\n      }\n    }\n  }\n  // (3) 1-to-1 elimination fallback\n  const leftInv = invLines.filter((il) => !paired.has(il.line_no));\n  const leftPo = poLines.filter((pl) => !usedPo.has(pl._ref));\n  if (leftInv.length && leftInv.length === leftPo.length && leftInv.length <= 3) {\n    leftInv.forEach((il, i) => { paired.set(il.line_no, leftPo[i]); usedPo.add(leftPo[i]._ref); });\n  }\n  return { paired, usedPo };\n}\n\n// --------------------------------------------------------------------------- //\n// main                                                                         //\n// --------------------------------------------------------------------------- //\nfunction runMatch(input, opts = {}) {\n  const invoice = input.invoice || {};\n  const pos = input.pos || (input.po ? [input.po] : []);\n  const fyStart = opts.fy_start || '2025-04-01';\n  const fyEnd = opts.fy_end || '2026-03-31';\n  const rateTable = opts.rateTable || DEFAULT_RATE_TABLE;\n  const flags = [];\n\n  // ---- ladder ---------------------------------------------------------- //\n  const ladder = buildLadder(invoice, pos);\n  const matched = ladder.matched;\n  const poTotalSum = matched.reduce((s, p) => s + (num(p.total) || 0), 0);\n  const isLumpSum = matched.length === 1 && matched[0].po_itemized === false;\n\n  if (ladder.rung === 4) flags.push('No PO matched (PO checks unverified)');\n  if (ladder.rung === 3) flags.push('Possible match only (GSTIN, total off)');\n  if (ladder.confidence === 'medium' && ladder.basis.includes('handwritten'))\n    flags.push('PR/PO reference is handwritten — review');\n  if (matched.length > 1) flags.push(`Invoice spans ${matched.length} POs (total vs Σ POs)`);\n  if (isLumpSum) flags.push('PO is lump-sum — per-line checks N/A');\n\n  // ---- Tier 1 header checks (verdict-driving) -------------------------- //\n  const checks = {};\n\n  // vendor_match\n  if (!matched.length) {\n    checks.vendor_match = 'unverified';\n  } else {\n    let verdict = 'agrees';\n    for (const po of matched) {\n      const g = gstinEqual(invoice.vendor_gstin, po.vendor_gstin);\n      if (g === true) continue;\n      if (g === false) { verdict = 'fails'; break; }\n      // GSTIN missing → fall back to normalized name\n      if (invoice.vendor_name && po.vendor_name) {\n        if (normName(invoice.vendor_name) !== normName(po.vendor_name)) { verdict = 'fails'; break; }\n      } else { verdict = 'unverified'; }\n    }\n    checks.vendor_match = verdict;\n  }\n\n  // total_match\n  if (!matched.length || invoice.total == null) {\n    checks.total_match = 'unverified';\n  } else {\n    checks.total_match = amountsEqual(num(invoice.total), poTotalSum) ? 'agrees' : 'fails';\n  }\n\n  // dates_fy\n  const dates = [];\n  if (invoice.invoice_date) dates.push(['invoice', invoice.invoice_date]);\n  for (const po of matched) if (po.requisition_date) dates.push([`PO ${po.po_number}`, po.requisition_date]);\n  const outside = dates.find(([, d]) => !inFY(d, fyStart, fyEnd));\n  const needMissing = !invoice.invoice_date || matched.some((p) => !p.requisition_date);\n  if (outside) checks.dates_fy = 'fails';\n  else if (needMissing) checks.dates_fy = 'unverified';\n  else checks.dates_fy = 'agrees';\n\n  // ---- verdict --------------------------------------------------------- //\n  const headerFails =\n    checks.vendor_match === 'fails' ||\n    checks.total_match === 'fails' ||\n    checks.dates_fy === 'fails';\n  const result = !invoice.invoice_number && !invoice.total ? '' : headerFails ? 'No match' : 'Match';\n\n  // ---- po_num_consistent (flag) --------------------------------------- //\n  const invRefs = (invoice.references || []).filter((r) => r.kind === 'buyer_pr_po');\n  if (!matched.length || invRefs.length === 0) {\n    checks.po_num_consistent = 'unverified';\n  } else {\n    const matchedRefs = new Set();\n    matched.forEach((p) => { matchedRefs.add(normRef(p.po_number)); matchedRefs.add(normRef(p.pr_number)); });\n    const stray = invRefs.find((r) => !matchedRefs.has(normRef(r.value)));\n    checks.po_num_consistent = stray ? 'fails' : 'agrees';\n    if (stray) flags.push(`Invoice cites PR/PO ${stray.value} that matches no PO`);\n  }\n\n  // ---- date_order (flag, hard red) ------------------------------------ //\n  const latestPoDate = matched.map((p) => p.requisition_date).filter(Boolean).sort().pop();\n  if (invoice.invoice_date && latestPoDate) {\n    checks.date_order = invoice.invoice_date >= latestPoDate ? 'agrees' : 'fails';\n    if (checks.date_order === 'fails')\n      flags.push(`Invoice dated ${invoice.invoice_date} is BEFORE PO ${latestPoDate}`);\n  } else {\n    checks.date_order = 'unverified';\n  }\n\n  // ---- Tier 2/3/4 per-line ------------------------------------------- //\n  const poLines = [];\n  matched.forEach((po, pi) =>\n    (po.lines || []).forEach((l, li) => poLines.push({ ...l, _ref: `${pi}:${li}`, _po: po.po_number })));\n  const invLines = invoice.lines || [];\n  const { paired } = isLumpSum ? { paired: new Map() } : pairLines(invLines, poLines);\n\n  let overBilled = 0, rateVar = 0, hsnBad = 0, gstBad = 0, billOnly = 0;\n  const lines = invLines.map((il) => {\n    const pl = paired.get(il.line_no);\n\n    // Tier 2 — HSN validity + GST correctness (always runs, even lump-sum)\n    const hsn = il.hsn_sac ? String(il.hsn_sac).replace(/\\s+/g, '') : '';\n    let hsn_valid = 'unverified';\n    if (hsn) {\n      const okLen = [4, 6, 8].includes(hsn.length) && /^[0-9]+$/.test(hsn);\n      const sacOk = hsn.length === 6 && hsn.startsWith('99');\n      hsn_valid = okLen || sacOk ? 'agrees' : 'fails';\n      if (hsn_valid === 'fails') hsnBad += 1;\n    }\n    let gst_correct = 'unverified';\n    if (hsn && rateTable[hsn] != null && il.gst_rate != null) {\n      gst_correct = pctEqual(num(il.gst_rate), rateTable[hsn] / 100) ? 'agrees' : 'fails';\n      if (gst_correct === 'fails') gstBad += 1;\n    }\n\n    // Tier 3/4 — pairing-dependent\n    let line_match, rate_match, qty_flag;\n    if (isLumpSum) {\n      line_match = 'N/A — PO lump-sum'; rate_match = 'unverified'; qty_flag = 'N/A — PO lump-sum';\n    } else if (pl) {\n      line_match = 'agrees';\n      rate_match = pl.unit_price != null && il.rate != null\n        ? (ratesEqual(num(il.rate), num(pl.unit_price)) ? 'agrees' : 'fails')\n        : 'unverified';\n      if (rate_match === 'fails') rateVar += 1;\n      if (il.quantity != null && pl.quantity != null) {\n        qty_flag = qtyLe(num(il.quantity), num(pl.quantity)) ? 'agrees' : 'fails';\n        if (qty_flag === 'fails') overBilled += 1;\n      } else qty_flag = 'unverified';\n    } else {\n      line_match = matched.length ? 'fails' : 'unverified'; // extra billed line not on any PO\n      rate_match = 'unverified'; qty_flag = 'unverified';\n      if (matched.length) billOnly += 1;\n    }\n\n    return {\n      line_no: il.line_no, description: il.description, hsn_sac: il.hsn_sac || '',\n      quantity: il.quantity ?? '', unit: il.unit || '', rate: il.rate ?? '',\n      gst_rate: il.gst_rate ?? '', amount: il.amount ?? '',\n      paired_po_line: pl ? `${pl._po}#${pl.line_no}` : '', po_qty: pl ? (pl.quantity ?? '') : '',\n      po_unit_price: pl ? (pl.unit_price ?? '') : '',\n      line_match, rate_match, qty_flag, hsn_valid, gst_correct,\n    };\n  });\n\n  // PO-only lines (ordered but not billed) — informational\n  const poOnly = poLines.filter((pl) => ![...paired.values()].some((p) => p._ref === pl._ref));\n\n  if (overBilled) flags.push(`Over-billed ${overBilled} line item(s) (billed > ordered)`);\n  if (rateVar) flags.push(`Rate variance on ${rateVar} line(s)`);\n  if (hsnBad) flags.push(`Invalid HSN/SAC on ${hsnBad} line(s)`);\n  if (gstBad) flags.push(`GST% mismatch on ${gstBad} line(s)`);\n  if (billOnly) flags.push(`${billOnly} billed line(s) not on any PO`);\n  if (!isLumpSum && poOnly.length) flags.push(`${poOnly.length} ordered line(s) not billed`);\n\n  // ---- duplicate detection (optional ledger of prior invoices) -------- //\n  if (opts.ledger && opts.ledger.length) {\n    for (const e of opts.ledger) {\n      const sameVendor = gstinEqual(invoice.vendor_gstin, e.vendor_gstin) === true;\n      if (sameVendor && e.invoice_number && invoice.invoice_number &&\n          normRef(e.invoice_number) === normRef(invoice.invoice_number)) {\n        flags.push(`EXACT DUPLICATE of already-processed invoice ${e.invoice_number}`);\n      } else if (sameVendor && e.total != null && invoice.total != null &&\n                 amountsEqual(num(invoice.total), num(e.total)) && e.invoice_date === invoice.invoice_date) {\n        flags.push(`Possible duplicate: same vendor/amount/date as ${e.invoice_number} (diff number)`);\n      }\n    }\n  }\n\n  // ---- reason (only on No match) -------------------------------------- //\n  let reason = '';\n  if (result === 'No match') {\n    const parts = [];\n    if (checks.vendor_match === 'fails') parts.push('Invoice/PO vendor mismatch');\n    if (checks.total_match === 'fails') {\n      const d = round2(num(invoice.total) - poTotalSum);\n      parts.push(`Invoice ${invoice.total} vs PO ${round2(poTotalSum)} (diff ${d})`);\n    }\n    if (checks.dates_fy === 'fails' && outside)\n      parts.push(`${outside[0]} date ${outside[1]} outside FY ${fyStart}–${fyEnd}`);\n    reason = parts.join('; ');\n  }\n\n  return {\n    header: {\n      invoice_number: invoice.invoice_number || '',\n      invoice_date: invoice.invoice_date || '',\n      vendor_name: invoice.vendor_name || '',\n      vendor_gstin: invoice.vendor_gstin || '',\n      invoice_total: invoice.total ?? '',\n      matched_po_numbers: matched.map((p) => p.po_number).join(', ') +\n        (matched.length > 1 ? ` (${matched.length})` : ''),\n      po_total_sum: round2(poTotalSum),\n      result,\n      vendor_match: checks.vendor_match,\n      total_match: checks.total_match,\n      dates_fy: checks.dates_fy,\n      po_num_consistent: checks.po_num_consistent,\n      date_order: checks.date_order,\n      match_basis: ladder.basis,\n      confidence: ladder.confidence,\n      flags,\n      reason,\n    },\n    lines,\n  };\n}\n\n// ---- n8n Code-node entrypoint (safe no-op under Node) --------------------- //\nif (typeof $input !== 'undefined') {\n  const payload = $input.first().json;                          // { invoice, pos|po, opts? }\n  const out = runMatch(payload, payload.opts || {});\n  return [{ json: out }];                                       // eslint-disable-line\n}\n\n// ---- Node export (safe no-op inside n8n) ---------------------------------- //\nif (typeof module !== 'undefined' && module.exports) {\n  module.exports = { runMatch, amountsEqual, ratesEqual, pctEqual, qtyLe, DEFAULT_RATE_TABLE };\n}\n"
+      },
+      "id": "node-match",
+      "name": "Match (2-way GST)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1760,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "'use strict';\n/*\n * to_rows.js — turn a matcher result into (a) flat rows and (b) CSV text, ready\n * for the \"Convert to File\" node or direct return to the browser. Produces two\n * logical tables: a one-row-per-invoice results table and a one-row-per-line\n * detail table, plus a combined CSV string for each.\n */\n\nconst RESULT_COLS = [\n  'invoice_number', 'invoice_date', 'vendor_name', 'vendor_gstin', 'invoice_total',\n  'matched_po_numbers', 'po_total_sum', 'result', 'vendor_match', 'total_match',\n  'dates_fy', 'po_num_consistent', 'date_order', 'match_basis', 'confidence',\n  'flags', 'reason',\n];\nconst LINE_COLS = [\n  'invoice_number', 'line_no', 'description', 'hsn_sac', 'quantity', 'unit', 'rate',\n  'gst_rate', 'amount', 'paired_po_line', 'po_qty', 'po_unit_price', 'line_match',\n  'rate_match', 'qty_flag', 'hsn_valid', 'gst_correct',\n];\n\nconst csvCell = (v) => {\n  const s = v === null || v === undefined ? '' : String(v);\n  return /[\",\\n]/.test(s) ? '\"' + s.replace(/\"/g, '\"\"') + '\"' : s;\n};\nconst toCsv = (cols, rows) =>\n  [cols.join(','), ...rows.map((r) => cols.map((c) => csvCell(r[c])).join(','))].join('\\n');\n\nfunction toRows(result) {\n  const h = result.header;\n  const resultRow = { ...h, flags: (h.flags || []).join(' ; ') };\n  const lineRows = (result.lines || []).map((l) => ({ invoice_number: h.invoice_number, ...l }));\n\n  const resultsCsv = toCsv(RESULT_COLS, [resultRow]);\n  const linesCsv = toCsv(LINE_COLS, lineRows);\n  return {\n    result: h.result,\n    header: resultRow,\n    lines: lineRows,\n    results_csv: resultsCsv,\n    lines_csv: linesCsv,\n    // one combined workbook-style CSV (results block, blank line, line detail)\n    combined_csv: resultsCsv + '\\n\\n' + linesCsv,\n  };\n}\n\nif (typeof $input !== 'undefined') {\n  const it = $input.first().json;\n  const out = toRows(it);\n  const csv = out.combined_csv;\n  return [{                                                     // eslint-disable-line\n    json: { result: out.result, header: out.header, lines: out.lines,\n            csv_base64: Buffer.from(csv, 'utf8').toString('base64'),\n            filename: `match_${out.header.invoice_number || 'result'}.csv` },\n    binary: { data: { data: Buffer.from(csv, 'utf8').toString('base64'),\n              mimeType: 'text/csv', fileName: `match_${out.header.invoice_number || 'result'}.csv` } },\n  }];\n}\nif (typeof module !== 'undefined' && module.exports) module.exports = { toRows, RESULT_COLS, LINE_COLS };\n"
+      },
+      "id": "node-rows",
+      "name": "Build CSV rows",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1980,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              }
+            ]
+          }
+        }
+      },
+      "id": "node-respond",
+      "name": "Respond (JSON + CSV)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        2200,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://app.nanonets.com/api/v2/OCR/Model/{{ $env.NANONETS_INVOICE_MODEL }}/LabelFile/",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "file",
+              "inputDataFieldName": "invoice"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-ocr-inv",
+      "name": "OCR: parse invoice",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        640,
+        820
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://app.nanonets.com/api/v2/OCR/Model/{{ $env.NANONETS_PO_MODEL }}/LabelFile/",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "file",
+              "inputDataFieldName": "po"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-ocr-po",
+      "name": "OCR: parse PO",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        640,
+        960
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "'use strict';\n/*\n * ocr_nanonets.js — map a Nanonets /LabelFile/ prediction response to the canonical\n * schema that normalize.js / matcher.js expect.\n *\n * Nanonets response shape (v2 model prediction):\n *   result[0].prediction[] -> [{ label, ocr_text, ... }]   (flat header fields)\n *   result[0].cells[]      -> [{ row, col, label, ocr_text }] (table / line items)\n *\n * Pretrained-model label names vary a little between the Invoice and Purchase-Order\n * models and across account versions, so the label map below is deliberately\n * TOLERANT (many aliases → one canonical key). Run tests/nanonets_probe.js to print\n * the *actual* labels your models emit, then add any missing alias here.\n *\n * Portable: runs in Node (require) and in an n8n Code node.\n */\n\n// canonical key  ->  set of accepted Nanonets labels (lowercased, non-alnum stripped)\nconst HEADER_ALIASES = {\n  invoice_number: ['invoicenumber', 'invoiceno', 'invoiceno', 'billno', 'billnumber'],\n  invoice_date: ['invoicedate', 'date', 'billdate'],\n  vendor_name: ['vendorname', 'sellername', 'suppliername', 'vendor', 'seller', 'frombusinessname', 'companyname'],\n  vendor_gstin: ['vendorgstin', 'sellergstin', 'gstin', 'suppliergstin', 'gstinno', 'gstno', 'sellergstinuin'],\n  buyer_gstin: ['buyergstin', 'consigneegstin', 'shiptogstin', 'billtogstin'],\n  po_number: ['ponumber', 'pono', 'purchaseordernumber', 'purchaseorderno', 'buyerorderno', 'buyerpo'],\n  pr_number: ['prnumber', 'prno', 'requisitionnumber'],\n  requisition_date: ['requisitiondate', 'podate', 'purchaseorderdate', 'orderdate'],\n  taxable_total: ['taxabletotal', 'taxableamount', 'taxablevalue', 'subtotal', 'nettotal'],\n  tax_total: ['taxtotal', 'taxamount', 'gsttotal', 'gstamount', 'totaltax', 'gst'],\n  total: ['total', 'totalamount', 'grandtotal', 'invoiceamount', 'invoicetotal', 'pototal', 'amountdue', 'amountpayable'],\n};\n\n// invoice/PO can print CGST + SGST separately — sum them into tax_total.\nconst SPLIT_TAX = ['cgst', 'cgstamount', 'sgst', 'sgstamount', 'igst', 'igstamount'];\n\nconst LINE_ALIASES = {\n  description: ['description', 'itemdescription', 'lineitemdescription', 'particulars', 'itemname', 'product'],\n  hsn_sac: ['hsn', 'sac', 'hsnsac', 'hsncode', 'hsnsaccode'],\n  quantity: ['quantity', 'qty'],\n  unit: ['unit', 'uom', 'units'],\n  unit_price: ['unitprice', 'rate', 'price', 'priceperunit'],\n  gst_rate: ['gstrate', 'gst', 'taxrate', 'gstpercent'],\n  amount: ['amount', 'lineamount', 'linetotal', 'total', 'value'],\n};\n\nconst key = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');\nconst cleanNum = (s) => {\n  if (s === null || s === undefined || s === '') return null;\n  const n = Number(String(s).replace(/[₹$€£,%\\s]/g, '').replace(/[()]/g, ''));\n  return Number.isFinite(n) ? n : null;\n};\n\nfunction findCanonical(labelKey, aliasMap) {\n  for (const canon of Object.keys(aliasMap)) {\n    if (aliasMap[canon].includes(labelKey)) return canon;\n  }\n  return null;\n}\n\n// pull result[0] (the first page/prediction block) defensively\nfunction firstBlock(resp) {\n  if (!resp) return { prediction: [], cells: [] };\n  const r = Array.isArray(resp.result) ? resp.result[0] : resp.result || resp;\n  return { prediction: r.prediction || [], cells: r.cells || [] };\n}\n\nfunction headerFields(prediction) {\n  const out = {}; let splitTax = 0; let sawSplit = false;\n  for (const p of prediction) {\n    const lk = key(p.label);\n    const val = p.ocr_text != null ? p.ocr_text : p.value;\n    if (SPLIT_TAX.includes(lk)) { const n = cleanNum(val); if (n != null) { splitTax += n; sawSplit = true; } continue; }\n    const canon = findCanonical(lk, HEADER_ALIASES);\n    if (canon && out[canon] === undefined) out[canon] = val;\n  }\n  if (sawSplit && out.tax_total === undefined) out.tax_total = splitTax;\n  return out;\n}\n\nfunction lineItems(cells) {\n  if (!cells || !cells.length) return [];\n  const rows = new Map();\n  for (const c of cells) {\n    const r = c.row;\n    if (r === undefined || r === null) continue;\n    if (!rows.has(r)) rows.set(r, {});\n    const canon = findCanonical(key(c.label), LINE_ALIASES);\n    if (canon) rows.get(r)[canon] = c.ocr_text != null ? c.ocr_text : c.value;\n  }\n  // Nanonets often includes the header row as row 0 with the column titles — drop any\n  // row that has no numeric quantity/amount and whose description looks like a header.\n  const items = [];\n  let lineNo = 1;\n  for (const [, cols] of [...rows.entries()].sort((a, b) => a[0] - b[0])) {\n    const hasData = cols.description || cols.amount || cols.quantity;\n    if (!hasData) continue;\n    const looksHeader = /^(description|item|qty|quantity|rate|amount|hsn|sac|particulars)$/i\n      .test(String(cols.description || '').trim());\n    if (looksHeader) continue;\n    items.push({\n      line_no: lineNo++,\n      description: cols.description || '',\n      hsn_sac: cols.hsn_sac || '',\n      quantity: cleanNum(cols.quantity),\n      unit: cols.unit || '',\n      rate: cleanNum(cols.unit_price),\n      unit_price: cleanNum(cols.unit_price),\n      gst_rate: normGst(cols.gst_rate),\n      amount: cleanNum(cols.amount),\n    });\n  }\n  return items;\n}\n\n// GST may come as \"18\", \"18%\", or \"0.18\" — canonical is a fraction (0.18).\nfunction normGst(v) {\n  const n = cleanNum(v);\n  if (n == null) return null;\n  return n > 1 ? n / 100 : n;\n}\n\nfunction nanonetsToCanonical(resp, kind) {\n  const { prediction, cells } = firstBlock(resp);\n  const h = headerFields(prediction);\n  const lines = lineItems(cells);\n\n  if (kind === 'po') {\n    const doc = {\n      po_number: h.po_number || '',\n      pr_number: h.pr_number || '',\n      vendor_name: h.vendor_name || '',\n      vendor_gstin: h.vendor_gstin || '',\n      buyer_gstin: h.buyer_gstin || '',\n      requisition_date: h.requisition_date || h.invoice_date || '',\n      total: cleanNum(h.total),\n      lines,\n    };\n    return doc;\n  }\n  // invoice\n  return {\n    invoice_number: h.invoice_number || '',\n    invoice_date: h.invoice_date || '',\n    vendor_name: h.vendor_name || '',\n    vendor_gstin: h.vendor_gstin || '',\n    buyer_gstin: h.buyer_gstin || '',\n    // a printed PO number on the invoice becomes a buyer_pr_po reference\n    references: h.po_number ? [{ value: h.po_number, kind: 'buyer_pr_po', handwritten: false }] : [],\n    taxable_total: cleanNum(h.taxable_total),\n    tax_total: cleanNum(h.tax_total),\n    total: cleanNum(h.total),\n    lines,\n  };\n}\n\n// ---- n8n Code-node entrypoint (safe no-op under Node) --------------------- //\nif (typeof $input !== 'undefined') {\n  // Expects the two OCR HTTP nodes upstream, referenced by name.\n  const invResp = $('OCR: parse invoice').first().json;\n  const poResp = $('OCR: parse PO').first().json;\n  const invoice = nanonetsToCanonical(invResp, 'invoice');\n  const po = nanonetsToCanonical(poResp, 'po');\n  return [{ json: { invoice, pos: [po], opts: {} } }];        // eslint-disable-line\n}\n\nif (typeof module !== 'undefined' && module.exports) {\n  module.exports = { nanonetsToCanonical };\n}\n"
+      },
+      "id": "node-ocr-map",
+      "name": "Map OCR → canonical",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        890
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## How it works (FREE — no API key)\nUploaded PDFs go **Route → Extract invoice/PO text → Parse text → canonical**\nusing n8n's built-in *Extract from File* (PDF text) + a Code node. No OCR\nservice needed for born-digital (text-layer) PDFs.\n\n`mode=sample` runs canonical JSON directly (*Prepare payload*).\n\n### Optional OCR (scanned/image PDFs)\nThe three **OCR** nodes below are a disconnected template. If you later get a\nvalid Nanonets *extraction* key, set env `NANONETS_INVOICE_MODEL` /\n`NANONETS_PO_MODEL`, add an HTTP Basic Auth credential, and connect\nRoute(false) → OCR nodes → Map OCR → Normalize instead of the Extract path.",
+        "height": 340,
+        "width": 430
+      },
+      "id": "node-note",
+      "name": "Notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1100,
+        780
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook (upload)": {
+      "main": [
+        [
+          {
+            "node": "Route (mode==sample?)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route (mode==sample?)": {
+      "main": [
+        [
+          {
+            "node": "Prepare payload",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prep uploaded files",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prep uploaded files": {
+      "main": [
+        [
+          {
+            "node": "Extract invoice text",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Extract PO text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract invoice text": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract PO text": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Parse text → canonical",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse text → canonical": {
+      "main": [
+        [
+          {
+            "node": "Normalize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare payload": {
+      "main": [
+        [
+          {
+            "node": "Normalize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize": {
+      "main": [
+        [
+          {
+            "node": "Match (2-way GST)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Match (2-way GST)": {
+      "main": [
+        [
+          {
+            "node": "Build CSV rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build CSV rows": {
+      "main": [
+        [
+          {
+            "node": "Respond (JSON + CSV)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false
+}

@@ -1,0 +1,6 @@
+invoice_number,invoice_date,vendor_name,vendor_gstin,invoice_total,matched_po_numbers,po_total_sum,result,vendor_match,total_match,dates_fy,po_num_consistent,date_order,match_basis,confidence,flags,reason
+INV-1010,2025-06-10,,29AABCS1429B1ZX,11800,PO2279,11800,Match,agrees,agrees,agrees,agrees,agrees,PR/PO number,high,Invalid HSN/SAC on 1 line(s) ; GST% mismatch on 1 line(s),
+
+invoice_number,line_no,description,hsn_sac,quantity,unit,rate,gst_rate,amount,paired_po_line,po_qty,po_unit_price,line_match,rate_match,qty_flag,hsn_valid,gst_correct
+INV-1010,1,Mystery item,12,50,,100,0.18,5900,PO2279#1,50,100,agrees,agrees,agrees,fails,unverified
+INV-1010,2,CPVC Pipe,3917,50,,100,0.12,5900,PO2279#2,50,100,agrees,agrees,agrees,agrees,fails

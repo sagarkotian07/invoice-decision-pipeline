@@ -1,0 +1,182 @@
+{
+  "source_file": "samples/05_unreconciled_missing.pdf",
+  "decision": {
+    "outcome": "NEEDS_REVIEW",
+    "confidence": 0.6,
+    "headline": "Cannot decide automatically \u2014 routed to a person with specific reasons.",
+    "primary_reasons": [
+      "[MISSING_CRITICAL_FIELDS] Missing critical field(s): invoice number. Cannot process safely without them.",
+      "[TOTAL_DOESNT_RECONCILE] Subtotal $3,200.00 + tax $150.00 = $3,350.00, but stated total is $3,520.00 (\u0394 $170.00). The invoice does not add up.",
+      "[PO_UNRESOLVED] No PO reference on the invoice and it can't be inferred unambiguously (0 open PO(s) for Northwind Traders could fit $3,520.00). Needs a human to attach the correct PO.",
+      "[LOW_EXTRACTION_CONFIDENCE] Extraction confidence 54% is below the 75% threshold required to act automatically \u2014 some fields are uncertain."
+    ],
+    "recommended_action": "Request the missing field(s) from the vendor before re-processing."
+  },
+  "extracted": {
+    "invoice_number": null,
+    "invoice_date": "2026-06-28",
+    "vendor_raw": "Northwind Traders",
+    "vendor_resolved": "Northwind Traders",
+    "vendor_id": "V002",
+    "po_reference": null,
+    "currency": "USD",
+    "subtotal": "3200.00",
+    "tax": "150.00",
+    "total": "3520.00",
+    "line_items": [
+      {
+        "description": "Consulting services (June)",
+        "quantity": "40",
+        "unit_price": "50.00",
+        "amount": "2000.00"
+      },
+      {
+        "description": "Onsite support",
+        "quantity": "8",
+        "unit_price": "150.00",
+        "amount": "1200.00"
+      }
+    ],
+    "extraction_confidence": 0.544
+  },
+  "matched_po": null,
+  "ingest": {
+    "source_kind": "text-pdf",
+    "ocr_needed": false,
+    "ingest_confidence": 0.98
+  },
+  "trace": [
+    {
+      "stage": "ingest",
+      "summary": "Extracted 512 chars from a born-digital PDF text layer.",
+      "detail": {
+        "source_kind": "text-pdf",
+        "ocr_needed": false,
+        "ingest_confidence": 0.98,
+        "page_count": 1
+      },
+      "findings": []
+    },
+    {
+      "stage": "extract",
+      "summary": "Read 5 fields; overall confidence 54%.",
+      "detail": {
+        "invoice_number": null,
+        "invoice_date": "2026-06-28",
+        "vendor_raw": "Northwind Traders",
+        "po_reference": null,
+        "subtotal": "$3,200.00",
+        "tax": "$150.00",
+        "total": "$3,520.00",
+        "line_item_count": 2,
+        "field_confidence": {
+          "invoice_number": 0.0,
+          "po_reference": 0.0,
+          "invoice_date": 0.65,
+          "vendor": 0.62,
+          "total": 0.95,
+          "subtotal": 0.92,
+          "tax": 0.9
+        }
+      },
+      "findings": []
+    },
+    {
+      "stage": "validate",
+      "summary": "2 validation issue(s); worst = REVIEW (MISSING_CRITICAL_FIELDS).",
+      "detail": {},
+      "findings": [
+        {
+          "code": "MISSING_CRITICAL_FIELDS",
+          "severity": "REVIEW",
+          "message": "Missing critical field(s): invoice number. Cannot process safely without them.",
+          "evidence": {
+            "missing": [
+              "invoice number"
+            ]
+          }
+        },
+        {
+          "code": "TOTAL_DOESNT_RECONCILE",
+          "severity": "REVIEW",
+          "message": "Subtotal $3,200.00 + tax $150.00 = $3,350.00, but stated total is $3,520.00 (\u0394 $170.00). The invoice does not add up.",
+          "evidence": {
+            "subtotal": "3200.00",
+            "tax": "150.00",
+            "expected_total": "3350.00",
+            "stated_total": "3520.00",
+            "delta": "170.00"
+          }
+        }
+      ]
+    },
+    {
+      "stage": "match",
+      "summary": "Vendor: Northwind Traders; PO: none (none).",
+      "detail": {
+        "vendor_id": "V002",
+        "po": null,
+        "po_remaining_balance": null
+      },
+      "findings": [
+        {
+          "code": "VENDOR_APPROVED",
+          "severity": "OK",
+          "message": "Vendor resolved to Northwind Traders (V002) [exact/alias].",
+          "evidence": {
+            "vendor_id": "V002",
+            "match_ratio": 1.0
+          }
+        },
+        {
+          "code": "PO_UNRESOLVED",
+          "severity": "REVIEW",
+          "message": "No PO reference on the invoice and it can't be inferred unambiguously (0 open PO(s) for Northwind Traders could fit $3,520.00). Needs a human to attach the correct PO.",
+          "evidence": {
+            "vendor_open_pos": [
+              "PO-1002"
+            ],
+            "plausible": []
+          }
+        }
+      ]
+    },
+    {
+      "stage": "rules",
+      "summary": "1 business-rule issue(s); worst = REVIEW (LOW_EXTRACTION_CONFIDENCE).",
+      "detail": {},
+      "findings": [
+        {
+          "code": "LOW_EXTRACTION_CONFIDENCE",
+          "severity": "REVIEW",
+          "message": "Extraction confidence 54% is below the 75% threshold required to act automatically \u2014 some fields are uncertain.",
+          "evidence": {
+            "extraction_confidence": 0.544,
+            "threshold": 0.75,
+            "source_kind": "text-pdf"
+          }
+        },
+        {
+          "code": "NO_DUPLICATE",
+          "severity": "OK",
+          "message": "No matching invoice found in the ledger \u2014 not a duplicate.",
+          "evidence": {}
+        }
+      ]
+    },
+    {
+      "stage": "decide",
+      "summary": "NEEDS_REVIEW (confidence 60%) \u2014 Cannot decide automatically \u2014 routed to a person with specific reasons.",
+      "detail": {
+        "primary_reasons": [
+          "[MISSING_CRITICAL_FIELDS] Missing critical field(s): invoice number. Cannot process safely without them.",
+          "[TOTAL_DOESNT_RECONCILE] Subtotal $3,200.00 + tax $150.00 = $3,350.00, but stated total is $3,520.00 (\u0394 $170.00). The invoice does not add up.",
+          "[PO_UNRESOLVED] No PO reference on the invoice and it can't be inferred unambiguously (0 open PO(s) for Northwind Traders could fit $3,520.00). Needs a human to attach the correct PO.",
+          "[LOW_EXTRACTION_CONFIDENCE] Extraction confidence 54% is below the 75% threshold required to act automatically \u2014 some fields are uncertain."
+        ],
+        "recommended_action": "Request the missing field(s) from the vendor before re-processing."
+      },
+      "findings": []
+    }
+  ]
+}
